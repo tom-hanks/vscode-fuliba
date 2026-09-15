@@ -2,7 +2,7 @@
   "name": "fuliba",
   "displayName": "福利吧",
   "description": "码农摸鱼神器：在 VS Code 侧边栏里刷福利吧。等编译、等依赖、等 AI 把代码写完的间隙，顺手翻两页，不用切浏览器。",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "publisher": "laryers",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -69,6 +69,24 @@
         "title": "搜索",
         "category": "福利吧",
         "icon": "$(search)"
+      },
+      {
+        "command": "fuliba.chooseSort",
+        "title": "排序方式",
+        "category": "福利吧",
+        "icon": "$(list-ordered)"
+      },
+      {
+        "command": "fuliba.toggleSticky",
+        "title": "屏蔽/显示置顶帖",
+        "category": "福利吧",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "fuliba.selectForums",
+        "title": "选择显示的版块",
+        "category": "福利吧",
+        "icon": "$(filter)"
       },
       {
         "command": "fuliba.prevPage",
@@ -146,7 +164,7 @@
           "group": "navigation@1"
         },
         {
-          "command": "fuliba.openThread",
+          "command": "fuliba.chooseSort",
           "when": "view == fuliba-forums",
           "group": "navigation@2"
         },
@@ -164,44 +182,59 @@
           "command": "fuliba.settings",
           "when": "view == fuliba-forums",
           "group": "navigation@5"
+        },
+        {
+          "command": "fuliba.selectForums",
+          "when": "view == fuliba-forums",
+          "group": "1_forum@1"
+        },
+        {
+          "command": "fuliba.toggleSticky",
+          "when": "view == fuliba-forums",
+          "group": "1_forum@2"
+        },
+        {
+          "command": "fuliba.openThread",
+          "when": "view == fuliba-forums",
+          "group": "2_post@1"
         }
       ],
       "view/item/context": [
         {
           "command": "fuliba.prevPage",
-          "when": "view == fuliba-forums && viewItem == dir",
+          "when": "view == fuliba-forums && viewItem == fuliba.forum",
           "group": "inline@0"
         },
         {
           "command": "fuliba.nextPage",
-          "when": "view == fuliba-forums && viewItem == dir",
+          "when": "view == fuliba-forums && viewItem == fuliba.forum",
           "group": "inline@1"
         },
         {
           "command": "fuliba.refreshNode",
-          "when": "view == fuliba-forums && viewItem =~ /^(dir|group)$/",
+          "when": "view == fuliba-forums && viewItem =~ /^fuliba\\.(forum|group)$/",
           "group": "inline@2"
         },
         {
           "command": "fuliba.jumpFirst",
-          "when": "view == fuliba-forums && viewItem == dir",
+          "when": "view == fuliba-forums && viewItem == fuliba.forum",
           "group": "inline@3"
         },
         {
           "command": "fuliba.copyLink",
-          "when": "view == fuliba-forums && viewItem == item"
+          "when": "view == fuliba-forums && viewItem == fuliba.thread"
         },
         {
           "command": "fuliba.copyTitleLink",
-          "when": "view == fuliba-forums && viewItem == item"
+          "when": "view == fuliba-forums && viewItem == fuliba.thread"
         },
         {
           "command": "fuliba.openInBrowser",
-          "when": "view == fuliba-forums && viewItem == item"
+          "when": "view == fuliba-forums && viewItem == fuliba.thread"
         },
         {
           "command": "fuliba.markRead",
-          "when": "view == fuliba-forums && viewItem == item"
+          "when": "view == fuliba-forums && viewItem == fuliba.thread"
         }
       ]
     },
@@ -212,6 +245,26 @@
           "type": "string",
           "default": "https://www.wnflb2023.com",
           "description": "论坛站点地址"
+        },
+        "fuliba.threadSort": {
+          "type": "string",
+          "enum": [
+            "dateline",
+            "lastpost",
+            "heats"
+          ],
+          "enumDescriptions": [
+            "按发帖时间倒序，只看新帖",
+            "按最后回复时间倒序，有人回帖就顶上来",
+            "按热度倒序，回复和查看多的排前面"
+          ],
+          "default": "dateline",
+          "markdownDescription": "版块内帖子的排序方式。也可以用侧边栏标题栏的「排序方式」按钮切换。"
+        },
+        "fuliba.hideStickyThreads": {
+          "type": "boolean",
+          "default": false,
+          "description": "在帖子列表中屏蔽置顶帖（侧边栏标题栏也有同名开关，可直接切换）"
         },
         "fuliba.hideReadThreads": {
           "type": "boolean",

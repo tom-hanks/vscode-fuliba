@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { BaseProvider, TreeNode } from './BaseProvider';
 import { fetchForumGroups, fetchThreadList } from '../discuz';
 import { LoginRequiredError } from '../error';
-import { Thread } from '../models';
+import { ForumGroup, Thread } from '../models';
 import Global from '../global';
 
 /**
@@ -13,6 +13,8 @@ import Global from '../global';
  */
 export default class ForumProvider extends BaseProvider {
 	private roots: TreeNode[] = [];
+	/** 原始版块分组（未经显示范围过滤），用于「选择显示的版块」 */
+	private groups: ForumGroup[] = [];
 	/** 是否已经尝试过加载根节点，避免 getChildren 被反复调用时重复请求 */
 	private loaded = false;
 
@@ -54,9 +56,22 @@ export default class ForumProvider extends BaseProvider {
 		this._onDidChangeTreeData.fire(undefined);
 	}
 
+	/**
+	 * 只重画、不重新请求版块列表。
+	 * 改排序方式、切置顶开关时用这个——版块结构没变，没必要再打一次首页。
+	 */
+	repaint(): void {
+		this._onDidChangeTreeData.fire(undefined);
+	}
+
 	/** 重新加载某个节点下的内容 */
 	refreshNode(node: TreeNode): void {
 		this._onDidChangeTreeData.fire(node);
+	}
+
+	/** 未经过滤的版块分组，供选择界面列出所有版块 */
+	getForumGroups(): ForumGroup[] {
+		return this.groups;
 	}
 
 	private async loadForums(): Promise<void> {
@@ -68,10 +83,21 @@ export default class ForumProvider extends BaseProvider {
 
 		try {
 			const groups = await fetchForumGroups();
-			this.roots = groups.map((group) => {
+			this.groups = groups;
+
+			// 用户在「选择显示的版块」里勾过就只留勾中的，没勾过（undefined）表示全都要
+			const visible = Global.getVisibleFids();
+			const keep = (fid: number): boolean => !visible || visible.includes(fid);
+
+			const filtered = groups
+				.map((group) => ({ name: group.name, forums: group.forums.filter((f) => keep(f.fid)) }))
+				// 分组里一个都没剩就整组不显示，免得留一堆空壳
+				.filter((group) => group.forums.length);
+
+			this.roots = filtered.map((group) => {
 				const groupNode = new TreeNode(group.name, true);
-				// 分组只做归类，不参与翻页，所以 contextValue 与版块分开
-				groupNode.contextValue = 'group';
+				// 分组只做归类，不参与翻页，所以和版块用不同的节点类型
+				groupNode.setKind('group');
 				groupNode.iconPath = new vscode.ThemeIcon('folder');
 				groupNode.children = group.forums.map((forum) => {
 					const forumNode = new TreeNode(forum.name, true);
@@ -93,7 +119,11 @@ export default class ForumProvider extends BaseProvider {
 
 	private async loadThreads(forumNode: TreeNode): Promise<TreeNode[]> {
 		try {
-			const page = await fetchThreadList(forumNode.fid as number, forumNode.pageNow);
+			const page = await fetchThreadList(
+				forumNode.fid as number,
+				forumNode.pageNow,
+				Global.getThreadSort()
+			);
 			forumNode.nodeName = page.forumName;
 			forumNode.pageNow = page.pageNow;
 			forumNode.pageTotal = page.pageTotal;
@@ -101,20 +131,35 @@ export default class ForumProvider extends BaseProvider {
 			forumNode.description = `第 ${page.pageNow} / ${page.pageTotal} 页`;
 
 			let threads: Thread[] = page.threads;
+			if (Global.getHideStickyThreads()) {
+				threads = threads.filter((thread) => !thread.isSticky);
+			}
 			if (Global.getHideReadThreads()) {
 				threads = threads.filter((thread) => !Global.isRead(thread.tid));
 			}
 
 			if (!threads.length) {
-				const empty = new TreeNode('（本页没有帖子）', false);
-				empty.contextValue = 'hint';
-				empty.iconPath = new vscode.ThemeIcon('info');
-				return [empty];
+				return [ForumProvider.hintNode(ForumProvider.emptyHint(page.threads.length))];
 			}
 			return threads.map((thread) => ForumProvider.threadNode(thread));
 		} catch (err) {
 			return [ForumProvider.errorNode(err)];
 		}
+	}
+
+	/** 空列表的原因不同，提示也不同，免得让人以为版块里真没帖 */
+	private static emptyHint(totalBeforeFilter: number): string {
+		if (totalBeforeFilter > 0) {
+			const reasons: string[] = [];
+			if (Global.getHideStickyThreads()) {
+				reasons.push('已屏蔽置顶帖');
+			}
+			if (Global.getHideReadThreads()) {
+				reasons.push('已隐藏已读');
+			}
+			return reasons.length ? `（本页帖子都被过滤了：${reasons.join('、')}）` : '（本页没有帖子）';
+		}
+		return '（本页没有帖子）';
 	}
 
 	// ---------- 静态构造 ----------
@@ -169,9 +214,16 @@ export default class ForumProvider extends BaseProvider {
 		}
 	}
 
+	private static hintNode(text: string): TreeNode {
+		const node = new TreeNode(text, false);
+		node.setKind('hint');
+		node.iconPath = new vscode.ThemeIcon('info');
+		return node;
+	}
+
 	private static errorNode(err: unknown): TreeNode {
 		const node = new TreeNode(ForumProvider.messageOf(err), false);
-		node.contextValue = 'error';
+		node.setKind('error');
 		node.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('errorForeground'));
 		return node;
 	}

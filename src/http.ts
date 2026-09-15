@@ -41,6 +41,100 @@ const client: AxiosInstance = axios.create({
 	},
 });
 
+/**
+ * 会被重试的网络错误。
+ *
+ * 论坛侧会不定时地把连接直接掐掉（客户端表现为 "socket hang up" / ECONNRESET），
+ * 实测同一个帖子页连发 8 次能失败 5 次，而失败后立刻重试基本都能成功——
+ * 说明是瞬时故障，不是帖子或地址有问题，重试就是最对症的解法。
+ * 只重试「根本没拿到响应」的情况，HTTP 状态码错误照旧直接抛出。
+ */
+const RETRYABLE_CODES = new Set([
+	'ECONNRESET',
+	'ECONNABORTED',
+	'EPIPE',
+	'ETIMEDOUT',
+	'ECONNREFUSED',
+	'EAI_AGAIN',
+	'ERR_SOCKET_CONNECTION_TIMEOUT',
+]);
+
+/** 最多尝试几次（含首次） */
+const MAX_ATTEMPTS = 3;
+/** 每次重试前的等待，第 n 次重试取 RETRY_DELAYS[n-1] */
+const RETRY_DELAYS = [500, 1500];
+
+/**
+ * 文案兜底匹配。
+ *
+ * 必须留这一层：论坛掐连接时，Node 抛出来的错误往往只有一句 "aborted"
+ *（流被中断），既没有 code 也不是标准文案，只靠 code 判断会漏掉——实测漏掉后
+ * 重试完全不触发，24 次里照样失败 7 次。
+ */
+const RETRYABLE_TEXT = /socket hang up|ECONNRESET|aborted|premature close/i;
+
+function isRetryable(err: unknown): boolean {
+	const e = err as { code?: string; message?: string; response?: { status?: number } };
+
+	// 别用「有没有 response」来判断。响应头回来了、包体被中途掐断时，axios 抛的错
+	// 仍然带着 response 且 status 是 200（实测形态：
+	//   { code: 'ECONNRESET', message: 'aborted', response: { status: 200 } }），
+	// 这种情况是拿到了半个包，必须重试，否则打开帖子会随机只显示一部分内容。
+	// 真正不该重试的只有 HTTP 错误状态；而 Discuz 提示页 / 未登录 / 无权限那些
+	// 是由 readHtml 抛出的领域错误，压根不带 response。
+	const status = e?.response?.status;
+	if (typeof status === 'number' && status >= 400) {
+		return false;
+	}
+
+	if (e?.code && RETRYABLE_CODES.has(e.code)) {
+		return true;
+	}
+	return RETRYABLE_TEXT.test(e?.message ?? '');
+}
+
+function isCompressionError(err: unknown): boolean {
+	return /content encoding|decompress|incorrect header check|invalid.*brotli/i.test(
+		(err as { message?: string })?.message ?? ''
+	);
+}
+
+/**
+ * 按次数重试一个请求。
+ *
+ * 重试时把 Accept-Encoding 降为 identity：实测带压缩的响应更容易被掐断
+ *（压缩组 24 次失败 6 次，不压缩组 24 次只失败 1 次），
+ * 这个降级只在重试路径上生效，正常请求照旧吃压缩省流量。
+ */
+async function withRetry<T>(
+	label: string,
+	run: (headers: Record<string, string>) => Promise<T>
+): Promise<T> {
+	let lastErr: unknown;
+
+	for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+		// 首次正常请求；之后一律要未压缩内容，避开压缩响应被掐断的那个坑
+		const headers: Record<string, string> = attempt === 1 ? {} : { 'Accept-Encoding': 'identity' };
+		try {
+			return await run(headers);
+		} catch (err) {
+			lastErr = err;
+			// 领域错误（未登录 / 无权限 / 帖子不存在 / Discuz 提示页）不重试，
+			// 而且必须原样抛出，上层要靠错误类型决定提示什么
+			if (!(isRetryable(err) || isCompressionError(err))) {
+				throw err;
+			}
+			if (attempt === MAX_ATTEMPTS) {
+				break;
+			}
+			await sleep(RETRY_DELAYS[attempt - 1] ?? 1500);
+		}
+	}
+
+	const reason = lastErr instanceof Error ? lastErr.message : String(lastErr);
+	throw new Error(`${label}失败（已重试 ${MAX_ATTEMPTS - 1} 次）：${reason}`);
+}
+
 /** 拼成完整的请求地址 */
 export function absoluteUrl(urlOrPath: string): string {
 	if (/^https?:\/\//i.test(urlOrPath)) {
@@ -113,14 +207,17 @@ async function requireCookie(): Promise<string> {
 /** 发起一次 GET 请求并返回 HTML 文本 */
 export async function getHtml(urlOrPath: string, params?: Record<string, unknown>): Promise<string> {
 	const cookie = await requireCookie();
-	await throttle();
+	const target = absoluteUrl(urlOrPath);
 
-	const response = await client.get<string>(absoluteUrl(urlOrPath), {
-		params,
-		headers: { Cookie: cookie },
-		validateStatus: () => true,
+	return withRetry(`请求 ${urlOrPath}`, async (extra) => {
+		await throttle();
+		const response = await client.get<string>(target, {
+			params,
+			headers: { Cookie: cookie, ...extra },
+			validateStatus: () => true,
+		});
+		return readHtml(response);
 	});
-	return readHtml(response);
 }
 
 /**
@@ -130,37 +227,44 @@ export async function getHtml(urlOrPath: string, params?: Record<string, unknown
 export async function postHtml(urlOrPath: string, data: Record<string, string>): Promise<string> {
 	const cookie = await requireCookie();
 	const target = absoluteUrl(urlOrPath);
+	const body = new URLSearchParams(data).toString();
 
-	await throttle();
-
-	const response = await client.post<string>(target, new URLSearchParams(data).toString(), {
-		headers: {
-			Cookie: cookie,
-			'Content-Type': 'application/x-www-form-urlencoded',
-			// Discuz 会校验来源页，缺 Referer 时搜索会被判为非法请求
-			Referer: target,
-		},
-		validateStatus: () => true,
+	return withRetry(`提交 ${urlOrPath}`, async (extra) => {
+		await throttle();
+		const response = await client.post<string>(target, body, {
+			headers: {
+				Cookie: cookie,
+				'Content-Type': 'application/x-www-form-urlencoded',
+				// Discuz 会校验来源页，缺 Referer 时搜索会被判为非法请求
+				Referer: target,
+				...extra,
+			},
+			validateStatus: () => true,
+		});
+		return readHtml(response);
 	});
-	return readHtml(response);
 }
 
 /** 下载二进制内容（图片等），带上 Cookie 和 Referer 以绕过防盗链 */
 export async function getBinary(urlOrPath: string): Promise<Buffer> {
 	const cookie = await Global.getCookie();
-	await throttle();
+	const target = absoluteUrl(urlOrPath);
 
-	const response = await client.get<ArrayBuffer>(absoluteUrl(urlOrPath), {
-		responseType: 'arraybuffer',
-		headers: {
-			...(cookie ? { Cookie: cookie } : {}),
-			Referer: Global.getSiteUrl() + '/',
-		},
-		validateStatus: () => true,
+	return withRetry(`下载 ${urlOrPath}`, async (extra) => {
+		await throttle();
+		const response = await client.get<ArrayBuffer>(target, {
+			responseType: 'arraybuffer',
+			headers: {
+				...(cookie ? { Cookie: cookie } : {}),
+				Referer: Global.getSiteUrl() + '/',
+				...extra,
+			},
+			validateStatus: () => true,
+		});
+
+		if (response.status >= 400) {
+			throw new Error(`下载失败：HTTP ${response.status}`);
+		}
+		return Buffer.from(response.data);
 	});
-
-	if (response.status >= 400) {
-		throw new Error(`下载失败：HTTP ${response.status}`);
-	}
-	return Buffer.from(response.data);
 }

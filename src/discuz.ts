@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio';
 import type { AnyNode } from 'domhandler';
 import { getHtml, postHtml, absoluteUrl } from './http';
-import { Forum, ForumGroup, Thread, ThreadListPage, Post, ThreadDetail } from './models';
+import { Forum, ForumGroup, Thread, ThreadListPage, Post, ThreadDetail, ThreadSort } from './models';
 import { NotFoundError } from './error';
 import Global from './global';
 
@@ -93,6 +93,13 @@ export const EMBED_HOSTS = [
  */
 const SMILEY_RE = /static\/image\/smiley\//i;
 
+/**
+ * 论坛皮肤自带的界面图标：占位图 none.gif、附件类型图标、帖子右侧的装饰箭头。
+ * 它们挂在 static/image/ 下，不是帖子内容图，别拿去做「点击加载」占位块。
+ * 注意别把 smiley 圈进来 —— 表情是故意留的占位。
+ */
+const UI_IMAGE_RE = /static\/image\/(?:common|filetype|attach|imagelist)\//i;
+
 /** 把 URL 放回 HTML 属性前做转义。裸 & 要补成实体，已是实体的保持原样 */
 function escapeAttr(value: string): string {
 	return value.replace(/&(?!amp;|lt;|gt;|quot;|#\d+;)/g, '&amp;').replace(/"/g, '&quot;');
@@ -108,6 +115,29 @@ function isAllowedEmbed(raw: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * 内嵌播放器缺的那条说明。
+ *
+ * 「视频有画面没声音」不是解析漏了，是 VS Code 的天花板：webview 跑在 Electron
+ * 自带的 Chromium 上，那份构建按授权要求裁掉了 AAC 解码器（microsoft/vscode#167685，
+ * 官方文档也写明 webview 只保证 Wav/Mp3/Ogg/Flac 音轨）。B 站的 DASH 音轨、
+ * 论坛直传的 mp4 基本全是 AAC，于是画面正常、声音全无，mp3 音轨的视频则没事。
+ * iframe 的 allow="autoplay" 也救不了 —— 那是权限，不是编解码。
+ * 与其让人以为插件坏了，不如直接给一条去浏览器的路。
+ */
+function mediaNote(href: string): string {
+	return (
+		'<figcaption class="media-note">没声音？VS Code 内核不含 AAC 解码器，音轨解不出来。' +
+		`<a href="${escapeAttr(href)}" target="_blank">在浏览器里听</a></figcaption>`
+	);
+}
+
+/** B 站把 bvid 放在查询串里，换成普通视频页链接，方便点出去看原始清晰度 */
+function embedWatchUrl(src: string): string {
+	const bv = src.match(/[?&]bv(?:id)?=([A-Za-z0-9]+)/i);
+	return bv ? `https://www.bilibili.com/video/${bv[1]}` : src;
 }
 
 /**
@@ -133,18 +163,31 @@ function rescueMedia($: CheerioAPI, $content: cheerio.Cheerio<AnyElement>): void
 		while ((match = iframeRe.exec(code)) !== null) {
 			const src = match[1].startsWith('//') ? `https:${match[1]}` : match[1];
 			if (isAllowedEmbed(src)) {
-				nodes.push(`<iframe class="embed" src="${escapeAttr(src)}" allowfullscreen></iframe>`);
+				// allow 不是「让它有声音」的开关（音轨是 AAC，解不了），而是把全屏、
+				// 画中画、加密媒体这些能力显式授予子文档，否则播放器自己的按钮会是灰的。
+				nodes.push(
+					'<figure class="media-embed">' +
+						`<iframe class="embed" src="${escapeAttr(src)}"` +
+						' allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen>' +
+						'</iframe>' +
+						mediaNote(embedWatchUrl(src)) +
+						'</figure>'
+				);
 			}
 		}
 
 		// 直链视频：<video src="https://.../x.mp4" poster="...">
 		const videoRe = /<video[^>]*\bsrc\s*=\s*['"]([^'"]+)['"][^>]*>/gi;
 		while ((match = videoRe.exec(code)) !== null) {
+			const src = absoluteUrl(match[1]);
 			const poster = match[0].match(/poster\s*=\s*['"]([^'"]+)['"]/i);
 			const posterAttr = poster ? ` poster="${escapeAttr(absoluteUrl(poster[1]))}"` : '';
 			nodes.push(
-				`<video class="media" src="${escapeAttr(absoluteUrl(match[1]))}"${posterAttr}` +
-					` controls preload="metadata" playsinline></video>`
+				'<figure class="media-embed">' +
+					`<video class="media" src="${escapeAttr(src)}"${posterAttr}` +
+					' controls preload="metadata" playsinline></video>' +
+					mediaNote(src) +
+					'</figure>'
 			);
 		}
 
@@ -165,6 +208,10 @@ function sanitizeContent($: CheerioAPI, $content: cheerio.Cheerio<AnyElement>): 
 	$content.find('script,style,link,object,embed,meta').remove();
 	// 只保留上面按白名单重建的播放器，原页面自带的 iframe 一律不要
 	$content.find('iframe').not('.embed').remove();
+
+	// 附件的悬浮浮层（div.tip.tip_4）：一串 javascript: 链接加两个旋转图标，
+	// 平时藏在附件名下面，展开只有噪音，整块不要。
+	$content.find('div.tip').remove();
 
 	// Discuz 的自定义外壳标签，浏览器不认，拆掉外壳但保留内容
 	$content.find('ignore_js_op').each((_, el) => {
@@ -193,7 +240,8 @@ function sanitizeContent($: CheerioAPI, $content: cheerio.Cheerio<AnyElement>): 
 		const $img = $(el);
 		const real =
 			$img.attr('zoomfile') || $img.attr('file') || $img.attr('data-original') || $img.attr('src') || '';
-		if (!real || /none\.gif|common\/none|static\/image\/common\/none/i.test(real)) {
+		// 没有地址、或者只是皮肤自带的小图标，直接丢掉，别做成占位块让人以为有内容
+		if (!real || UI_IMAGE_RE.test(real) || /none\.gif/i.test(real)) {
 			$img.remove();
 			return;
 		}
@@ -205,6 +253,16 @@ function sanitizeContent($: CheerioAPI, $content: cheerio.Cheerio<AnyElement>): 
 		// 用 span 而不是「去掉 src 的 img」——没有 src 的 img 在部分浏览器里仍会画出破图边框。
 		const label = SMILEY_RE.test(url) ? '[表情包] 点击加载' : '[图片] 点击加载';
 		$img.replaceWith(`<span class="img-slot" data-src="${escapeAttr(url)}">${label}</span>`);
+	});
+
+	// javascript: 空链接（附件图外层、论坛各种按钮都是这种）点了没反应，
+	// 保留蓝色链接样式只会让人以为能点，拆掉外壳把文字/图片留下。
+	$content.find('a').each((_, el) => {
+		const $a = $(el);
+		const href = ($a.attr('href') || '').trim();
+		if (!href || /^javascript:/i.test(href)) {
+			$a.replaceWith($a.contents());
+		}
 	});
 
 	// 处理附件下载链接：Discuz 用 a[href^=forum.php?mod=attachment]
@@ -347,12 +405,50 @@ export async function fetchForumGroups(): Promise<ForumGroup[]> {
 	if (!groups.length) {
 		throw new Error('未能解析出版块列表，论坛首页模板可能已改版');
 	}
+	// 存一份给「选择显示的版块」用，省得每次都重新抓首页
+	await Global.setForumGroups(groups);
 	return groups;
 }
 
+/**
+ * 取版块分组，优先用缓存。
+ * 用户点「选择显示的版块」时没必要为了列个清单再打一次论坛首页。
+ */
+export async function getForumGroupsCached(force = false): Promise<ForumGroup[]> {
+	if (!force) {
+		const cached = Global.getForumGroups();
+		if (cached) {
+			return cached;
+		}
+	}
+	return fetchForumGroups();
+}
+
+/**
+ * 把排序方式翻译成 Discuz forumdisplay 接受的查询参数。
+ *
+ * 三种取值都实测过：orderby 只改变排序，不会把结果缩成子集
+ *（forum-2 三档都是 60 条普通帖 + 4 条置顶，页数一致）。
+ * 注意不要用论坛界面上的 `filter=heat`——那个才是「只留热帖」的过滤，会漏帖。
+ */
+function sortParams(sort: ThreadSort): Record<string, string> {
+	switch (sort) {
+		case 'dateline':
+			return { orderby: 'dateline', ascdesc: 'desc' };
+		case 'heats':
+			return { orderby: 'heats' };
+		default:
+			return { orderby: 'lastpost', ascdesc: 'desc' };
+	}
+}
+
 /** 抓取某个版块的帖子列表 */
-export async function fetchThreadList(fid: number, page: number): Promise<ThreadListPage> {
-	const html = await getHtml(`forum-${fid}-${page}.html`);
+export async function fetchThreadList(
+	fid: number,
+	page: number,
+	sort: ThreadSort = 'lastpost'
+): Promise<ThreadListPage> {
+	const html = await getHtml(`forum-${fid}-${page}.html`, sortParams(sort));
 	const $ = cheerio.load(html);
 
 	if (/<div[^>]*id=["']?messagetext/i.test(html)) {
@@ -429,7 +525,7 @@ export async function fetchThreadList(fid: number, page: number): Promise<Thread
 	});
 
 	const { pageNow, pageTotal } = parsePagination($);
-	return { fid, forumName, threads, pageNow, pageTotal };
+	return { fid, forumName, threads, pageNow, pageTotal, sort };
 }
 
 /** 抓取帖子详情 */
@@ -463,6 +559,14 @@ export async function fetchThreadDetail(tid: number, page: number): Promise<Thre
 		const $content = $post.find('td.t_f').first();
 		if (!$content.length) {
 			return;
+		}
+
+		// 没插进正文的附件不在 td.t_f 里，它们渲染在同级的 div.t_fsz > div.pattl。
+		// 之前只读 td.t_f，于是「帖子里明明传了图，详情里一张都看不到」。
+		// Discuz 展示位置本来就在正文末尾，这里把它搬进正文尾部再一起清洗。
+		const $attachments = $post.find('div.t_fsz').first().find('div.pattl').first();
+		if ($attachments.length) {
+			$content.append($attachments);
 		}
 
 		const isOriginalPost = index === 0;

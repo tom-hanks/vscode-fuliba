@@ -1,11 +1,18 @@
 import * as vscode from 'vscode';
+import { ForumGroup, ThreadSort } from './models';
 
 const SECRET_COOKIE_KEY = 'fuliba.cookie';
 const STATE_READ_TIDS = 'fuliba.readTids';
 const STATE_FORUM_CACHE = 'fuliba.forumCache';
+/** 上一次解析出的版块分组，用于「选择显示的版块」时不必再打一次论坛 */
+const STATE_FORUM_GROUPS = 'fuliba.forumGroups';
+/** 用户勾选要显示的版块。没存过（undefined）代表「全部显示」 */
+const STATE_VISIBLE_FIDS = 'fuliba.visibleFids';
 
 /** 已读记录最多保留多少条，避免 state 无限膨胀 */
 const READ_TID_LIMIT = 3000;
+
+const VALID_SORTS: ThreadSort[] = ['lastpost', 'dateline', 'heats'];
 
 /**
  * 全局状态。集中管理 Cookie（存 SecretStorage 加密）、已读记录、版块缓存。
@@ -38,6 +45,56 @@ export default class Global {
 
 	public static getHideReadThreads(): boolean {
 		return vscode.workspace.getConfiguration('fuliba').get<boolean>('hideReadThreads') === true;
+	}
+
+	/**
+	 * 帖子列表排序方式。
+	 * 配置可能被手改坏，这里做一次白名单校验，落到 'dateline' 保证总有合法值。
+	 */
+	public static getThreadSort(): ThreadSort {
+		const raw = vscode.workspace.getConfiguration('fuliba').get<string>('threadSort');
+		return VALID_SORTS.includes(raw as ThreadSort) ? (raw as ThreadSort) : 'dateline';
+	}
+
+	public static async setThreadSort(sort: ThreadSort): Promise<void> {
+		await vscode.workspace
+			.getConfiguration('fuliba')
+			.update('threadSort', sort, vscode.ConfigurationTarget.Global);
+	}
+
+	/** 是否在帖子里屏蔽置顶帖 */
+	public static getHideStickyThreads(): boolean {
+		return vscode.workspace.getConfiguration('fuliba').get<boolean>('hideStickyThreads') === true;
+	}
+
+	public static async setHideStickyThreads(value: boolean): Promise<void> {
+		await vscode.workspace
+			.getConfiguration('fuliba')
+			.update('hideStickyThreads', value, vscode.ConfigurationTarget.Global);
+	}
+
+	// ---------- 版块显示范围 ----------
+
+	/** 勾选要显示的 fid 列表；返回 undefined 表示「全部显示」 */
+	public static getVisibleFids(): number[] | undefined {
+		const list = Global.context?.globalState.get<number[]>(STATE_VISIBLE_FIDS);
+		return Array.isArray(list) && list.length ? list : undefined;
+	}
+
+	/** 传 undefined 或空数组表示恢复「全部显示」 */
+	public static async setVisibleFids(fids: number[] | undefined): Promise<void> {
+		const value = fids && fids.length ? fids : undefined;
+		await Global.context?.globalState.update(STATE_VISIBLE_FIDS, value);
+	}
+
+	/** 缓存版块分组，供选择界面复用 */
+	public static async setForumGroups(groups: ForumGroup[]): Promise<void> {
+		await Global.context?.globalState.update(STATE_FORUM_GROUPS, groups);
+	}
+
+	public static getForumGroups(): ForumGroup[] | undefined {
+		const groups = Global.context?.globalState.get<ForumGroup[]>(STATE_FORUM_GROUPS);
+		return Array.isArray(groups) && groups.length ? groups : undefined;
 	}
 
 	/** 帖子详情里是否显示头像。默认关，每层一张头像会明显拖慢加载 */

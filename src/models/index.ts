@@ -29,6 +29,26 @@ export interface ForumGroup {
 	forums: Forum[];
 }
 
+/**
+ * 帖子列表的排序方式。
+ * 取值直接对应 Discuz forumdisplay 的 orderby 参数，改动时记得同步 sortLabel。
+ */
+export type ThreadSort = 'lastpost' | 'dateline' | 'heats';
+
+/** 排序方式的中文名，用于菜单与侧边栏标题 */
+export const SORT_LABELS: Record<ThreadSort, string> = {
+	lastpost: '最新回复',
+	dateline: '最新发布',
+	heats: '热帖',
+};
+
+/** 排序方式的菜单说明 */
+export const SORT_DETAILS: Record<ThreadSort, string> = {
+	lastpost: '按最后回复时间倒序，有人在下面回帖就会顶上来',
+	dateline: '按发帖时间倒序，只看新帖',
+	heats: '按热度倒序，回复和查看多的排前面',
+};
+
 /** 帖子列表中的一条 */
 export interface Thread {
 	tid: number;
@@ -60,6 +80,8 @@ export interface ThreadListPage {
 	threads: Thread[];
 	pageNow: number;
 	pageTotal: number;
+	/** 这一页用的排序方式 */
+	sort: ThreadSort;
 }
 
 /** 帖子详情中的一层楼 */

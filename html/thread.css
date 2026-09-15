@@ -220,7 +220,6 @@ button:disabled {
 	display: block;
 	max-width: 100%;
 	max-height: 160px;
-	margin: 8px 0;
 	border-radius: 6px;
 	background: #000;
 }
@@ -230,10 +229,73 @@ button:disabled {
 	width: 100%;
 	max-width: 320px;
 	height: 160px;
-	margin: 8px 0;
 	border: 0;
 	border-radius: 6px;
 	background: #000;
+}
+
+/*
+ * 播放器外壳：iframe / video 都塞进 figure，下面挂一条音轨说明。
+ * 说明不是可选项 —— VS Code 的 webview 不带 AAC 解码器，画面有声音没有是常态，
+ * 不写清楚会被当成插件的 bug（详见 src/discuz.ts 的 mediaNote）。
+ */
+.media-embed {
+	margin: 10px 0;
+}
+
+.media-embed video,
+.media-embed iframe {
+	margin: 0;
+}
+
+.media-note {
+	margin-top: 4px;
+	font-size: 0.82em;
+	color: var(--muted);
+}
+
+/*
+ * 附件块（dl.tattl）：Discuz 把未插入正文的附件挂在正文末尾，
+ * 原页面靠表格 + 悬浮菜单排版，这里拉平成一张小卡片。
+ */
+.post-content dl.tattl {
+	margin: 10px 0;
+	padding: 8px 12px;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+}
+
+/* 空壳元素，原页面上由悬浮菜单和表格撑开，这里没有内容就不用占位 */
+.post-content dl.tattl > dt:empty,
+.post-content dl.tattl p:empty {
+	display: none;
+}
+
+.post-content dl.tattl dd {
+	margin: 0;
+}
+
+.post-content dl.tattl p {
+	margin: 4px 0;
+}
+
+.post-content dl.tattl em {
+	font-style: normal;
+	font-size: 0.84em;
+	color: var(--muted);
+}
+
+/* 一串文件名看不出是什么，补个标识 */
+.post-content dl.tattl dd > p:first-child::before {
+	content: '附件: ';
+	color: var(--muted);
+}
+
+/* 附件里的图片占位块单独占一行，别和文件名挤在一起 */
+.post-content dl.tattl .img-slot {
+	display: inline-block;
+	margin-top: 6px;
 }
 
 .post-content img.zoomed {
