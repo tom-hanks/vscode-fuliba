@@ -5,6 +5,7 @@ import { fetchThreadDetail, extractTid } from '../discuz';
 import { LoginRequiredError, AccessDeniedError } from '../error';
 import { ThreadDetail } from '../models';
 import Global from '../global';
+import { ensureAudioFixed, cachedFixPath, FfmpegMissingError } from '../audioFix';
 
 /** 已打开的帖子面板，key 为 tid */
 const panels = new Map<number, vscode.WebviewPanel>();
@@ -34,11 +35,19 @@ function shortTitle(title: string): string {
 }
 
 function createPanel(tid: number, label: string): vscode.WebviewPanel {
+	// 转好的音轨落在 globalStorage 里，也得放进 resourceRoots，
+	// 否则 asWebviewUri 出来的地址会被 webview 的资源服务挡掉
+	const roots = [vscode.Uri.file(path.join(Global.context!.extensionPath, 'html'))];
+	const storage = Global.context?.globalStorageUri;
+	if (storage) {
+		roots.push(storage);
+	}
+
 	const panel = vscode.window.createWebviewPanel('fulibaThread', shortTitle(label), vscode.ViewColumn.Active, {
 		enableScripts: true,
 		retainContextWhenHidden: true,
 		enableFindWidget: true,
-		localResourceRoots: [vscode.Uri.file(path.join(Global.context!.extensionPath, 'html'))],
+		localResourceRoots: roots,
 	});
 	panel.iconPath = vscode.Uri.file(path.join(Global.context!.extensionPath, 'resources', 'icon.png'));
 	panels.set(tid, panel);
@@ -104,6 +113,74 @@ async function savePlayerSize(origin: vscode.WebviewPanel, width: number, height
 }
 
 /**
+ * 页面打开时会问一次「哪些视频已经有转好的音轨了」。
+ * 命中就直接换源 —— 同一个视频只该让用户点一次按钮。
+ */
+function replyAudioFixes(panel: vscode.WebviewPanel, urls: string[]): void {
+	const map: Record<string, string> = {};
+	for (const url of urls) {
+		const file = cachedFixPath(url);
+		if (file) {
+			map[url] = panel.webview.asWebviewUri(vscode.Uri.file(file)).toString();
+		}
+	}
+	if (Object.keys(map).length) {
+		void panel.webview.postMessage({ command: 'audioFixes', map });
+	}
+}
+
+/**
+ * 把视频音轨换成 MP3 并重新封装，再把新地址发回页面。
+ * 画面轨是 copy 过去的，耗时几乎全在下载上，所以进度就按下载百分比报。
+ */
+async function fixAudio(panel: vscode.WebviewPanel, url: string | undefined): Promise<void> {
+	if (!url) {
+		return;
+	}
+	try {
+		const result = await vscode.window.withProgress(
+			{
+				location: vscode.ProgressLocation.Notification,
+				title: '福利吧：正在把音轨换成 MP3…',
+				cancellable: false,
+			},
+			async (progress) =>
+				ensureAudioFixed(url, ({ received, total }) => {
+					progress.report({
+						message:
+							total > 0
+								? `${Math.round((received / total) * 100)}%`
+								: `${(received / 1024 / 1024).toFixed(1)} MB`,
+					});
+				})
+		);
+
+		const src = panel.webview.asWebviewUri(vscode.Uri.file(result.file)).toString();
+		void panel.webview.postMessage({ command: 'audioFixed', url, src });
+	} catch (err) {
+		const needsFfmpeg = err instanceof FfmpegMissingError;
+		void panel.webview.postMessage({
+			command: 'audioFixFailed',
+			url,
+			needsFfmpeg,
+			message: err instanceof Error ? err.message : '未知错误',
+		});
+
+		if (needsFfmpeg) {
+			const pick = await vscode.window.showWarningMessage(
+				'没找到 ffmpeg，无法重新封装音轨。装上并重启 VS Code 之后就好了。',
+				'去看安装说明'
+			);
+			if (pick) {
+				void vscode.env.openExternal(vscode.Uri.parse('https://ffmpeg.org/download.html'));
+			}
+			return;
+		}
+		void vscode.window.showErrorMessage(`修复声音失败：${err instanceof Error ? err.message : err}`);
+	}
+}
+
+/**
  * 打开（或激活已打开的）帖子详情面板。
  * 返回的 Promise 在「已读」记录写入后 resolve，调用方可以据此刷新树上的已读标记。
  */
@@ -117,7 +194,14 @@ export default async function openThread(tid: number, label = `帖子 ${tid}`): 
 	const panel = createPanel(tid, label);
 
 	panel.webview.onDidReceiveMessage(
-		(message: { command: string; page?: number; url?: string; width?: number; height?: number }) => {
+		(message: {
+			command: string;
+			page?: number;
+			url?: string;
+			width?: number;
+			height?: number;
+			urls?: string[];
+		}) => {
 			switch (message.command) {
 				case 'pageTurning':
 					void loadThread(panel, tid, Number(message.page) || 1);
@@ -127,6 +211,12 @@ export default async function openThread(tid: number, label = `帖子 ${tid}`): 
 					break;
 				case 'playerSize':
 					void savePlayerSize(panel, Number(message.width) || 0, Number(message.height) || 0);
+					break;
+				case 'fixAudio':
+					void fixAudio(panel, message.url);
+					break;
+				case 'audioFixes':
+					replyAudioFixes(panel, Array.isArray(message.urls) ? message.urls : []);
 					break;
 				case 'login':
 					void vscode.commands.executeCommand('fuliba.setCookie');

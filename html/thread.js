@@ -207,11 +207,123 @@
 		});
 	});
 
-	// 别的帖子面板拖动后，扩展会把新尺寸广播过来，让所有打开着的详情页保持一致
+	/* ---------------- 播放器：AAC 音轨换成 MP3，把声音救回来 ---------------- */
+
+	/*
+	 * VS Code 的 webview 跑在 Electron 自带的 Chromium 上，那份构建不含 AAC 解码器，
+	 * 论坛直传的 mp4 因此全是「有画面没声音、音量键灰着点不动」。
+	 * 扩展那边用 ffmpeg 把音轨换成 MP3 再封装回 mp4（画面轨直接 copy，不重编码），
+	 * 页面这里只负责发起请求、换源，并把那条说明改成结果。
+	 */
+
+	function figureBySrc(src) {
+		const figures = document.querySelectorAll('figure.media-embed[data-media-src]');
+		for (let i = 0; i < figures.length; i++) {
+			if (figures[i].dataset.mediaSrc === src) {
+				return figures[i];
+			}
+		}
+		return null;
+	}
+
+	function requestAudioFix(link) {
+		const src = link.dataset.src;
+		if (!src) {
+			return;
+		}
+		const figure = figureBySrc(src);
+		const state = figure ? figure.querySelector('.fix-state') : null;
+		link.classList.add('is-busy');
+		if (state) {
+			state.textContent = '转码中…';
+		}
+		vscode.postMessage({ command: 'fixAudio', url: src });
+	}
+
+	/** 换源成功：顺手把警告文案收掉，改成正向反馈 */
+	function applyAudioFix(url, nextSrc) {
+		const figure = figureBySrc(url);
+		if (!figure) {
+			return;
+		}
+		const video = figure.querySelector('video');
+		if (video) {
+			const wasPlaying = !video.paused;
+			video.src = nextSrc;
+			video.load();
+			if (wasPlaying) {
+				const played = video.play();
+				if (played && played.catch) {
+					played.catch(function () {});
+				}
+			}
+		}
+		const note = figure.querySelector('.media-note');
+		if (note) {
+			const original = note.querySelector('a[target="_blank"]');
+			const href = original ? original.getAttribute('href') : '';
+			note.classList.add('media-note-ok');
+			note.textContent = '音轨已换成 MP3（画面未重编码），声音和音量键都正常。';
+			if (href) {
+				const link = document.createElement('a');
+				link.href = href;
+				link.target = '_blank';
+				link.textContent = '看原视频';
+				note.appendChild(link);
+			}
+		}
+	}
+
+	function showAudioFixError(url, message, needsFfmpeg) {
+		const figure = figureBySrc(url);
+		if (!figure) {
+			return;
+		}
+		const link = figure.querySelector('.fix-audio');
+		if (link) {
+			link.classList.remove('is-busy');
+		}
+		const state = figure.querySelector('.fix-state');
+		if (state) {
+			state.textContent = needsFfmpeg ? '本机没装 ffmpeg' : '失败：' + message;
+		}
+	}
+
+	// 打开页面就问一次：哪些视频上次已经转好了。命中的直接换源，不用再点一次按钮。
+	(function () {
+		const srcs = [];
+		document.querySelectorAll('figure.media-embed[data-media-src]').forEach(function (figure) {
+			if (figure.dataset.mediaSrc) {
+				srcs.push(figure.dataset.mediaSrc);
+			}
+		});
+		if (srcs.length) {
+			vscode.postMessage({ command: 'audioFixes', urls: srcs });
+		}
+	})();
+
+	// 别的帖子面板拖动播放器 / 修好音轨后，扩展会把消息广播过来
 	window.addEventListener('message', function (event) {
 		const msg = event.data;
-		if (msg && msg.command === 'playerSize') {
+		if (!msg) {
+			return;
+		}
+		if (msg.command === 'playerSize') {
 			applySize(Number(msg.width) || 0, Number(msg.height) || 0);
+			return;
+		}
+		if (msg.command === 'audioFixed') {
+			applyAudioFix(msg.url, msg.src);
+			return;
+		}
+		if (msg.command === 'audioFixFailed') {
+			showAudioFixError(msg.url, msg.message, msg.needsFfmpeg);
+			return;
+		}
+		if (msg.command === 'audioFixes' && msg.map) {
+			Object.keys(msg.map).forEach(function (url) {
+				applyAudioFix(url, msg.map[url]);
+			});
 		}
 	});
 
@@ -220,6 +332,14 @@
 	 * 各挂一个的话，点在「包着链接的图片」上会同时触发图片和外链两个分支。
 	 */
 	document.addEventListener('click', function (event) {
+		// 0. 「换 MP3 音轨」要抢在下面的外链分支之前，否则 href="#" 会被当成普通链接丢给浏览器
+		const fixLink = event.target.closest('.fix-audio');
+		if (fixLink) {
+			event.preventDefault();
+			requestAudioFix(fixLink);
+			return;
+		}
+
 		// 1. 占位块 → 展开成真图
 		const slot = event.target.closest('.img-slot');
 		if (slot) {

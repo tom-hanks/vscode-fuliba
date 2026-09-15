@@ -318,16 +318,60 @@ body.resizing .media-stage video {
 
 /*
  * 音轨说明。不是可选文案 —— VS Code 的 webview 不带 AAC 解码器，
- * 画面有、声音没有、音量键也不显示是常态（详见 src/discuz.ts 的 mediaNote）。
+ * 画面有、声音没有、音量键是灰的才是常态（详见 src/discuz.ts 的 mediaNote）。
  */
 .media-note {
-	margin-top: 4px;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 6px;
+	margin-top: 6px;
 	font-size: 0.82em;
 	color: var(--muted);
 }
 
 .media-note a {
 	color: var(--link);
+}
+
+/* 「换 MP3 音轨」：把解不出来的 AAC 换成 VS Code 解得动的 MP3，做完音量键也会跟着活过来 */
+.post-content a.fix-audio {
+	color: var(--vscode-textLink-foreground, #3794ff);
+	border: 1px solid var(--border);
+	border-radius: 3px;
+	padding: 0 6px;
+	white-space: nowrap;
+}
+
+.post-content a.fix-audio:hover {
+	background: var(--card);
+	text-decoration: none;
+}
+
+/* 转码期间压住按钮，避免连点触发第二遍下载 */
+.post-content a.fix-audio.is-busy {
+	opacity: 0.5;
+	pointer-events: none;
+}
+
+.fix-state {
+	white-space: nowrap;
+}
+
+.fix-state:empty {
+	display: none;
+}
+
+/* 本机没 ffmpeg 时的提示，语气要弱于链接 */
+.fix-hint {
+	white-space: nowrap;
+	cursor: help;
+	border-bottom: 1px dotted var(--border);
+}
+
+/* 换好之后这条说明就该收起警告口吻 */
+.media-note.media-note-ok {
+	color: var(--vscode-charts-green, inherit);
 }
 
 /* detectPlayer 留下的空容器：播放器由页面 JS 渲染，我们不用它，别留个空盒子 */

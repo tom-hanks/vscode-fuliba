@@ -4,6 +4,7 @@ import { getHtml, postHtml, absoluteUrl } from './http';
 import { Forum, ForumGroup, Thread, ThreadListPage, Post, ThreadDetail, ThreadSort } from './models';
 import { NotFoundError } from './error';
 import Global from './global';
+import { cachedFixPath, findFfmpeg, isFixableVideo } from './audioFix';
 
 type CheerioAPI = ReturnType<typeof cheerio.load>;
 /** cheerio v1 不再导出 Element，节点类型统一来自 domhandler */
@@ -118,21 +119,38 @@ function isAllowedEmbed(raw: string): boolean {
 }
 
 /**
- * 内嵌播放器缺的那条说明。
+ * 播放器下面那条说明。
  *
- * 「视频有画面没声音」不是解析漏了，是 VS Code 的天花板：webview 跑在 Electron
- * 自带的 Chromium 上，那份构建按授权要求裁掉了 AAC 解码器（microsoft/vscode#167685，
- * 官方文档也写明 webview 只保证 Wav/Mp3/Ogg/Flac 音轨）。B 站的 DASH 音轨、
- * 论坛直传的 mp4 基本全是 AAC（实测帖子里那个 mp4 的音频轨 esds OTI=0x40，就是 AAC），
- * 而 H.264 画面是能解的 —— 于是画面正常、声音全无。
- * 音量键消失也是同一个原因：Chromium 的媒体控件只在「有音轨」时才画静音按钮
- * （WebKit bug 89093 / Chromium CL 1303553003），音轨解不出来就等于没有音轨。
- * 给 iframe 加 allow="autoplay" 救不了这个 —— 那是权限，不是编解码。
- * 与其让人以为插件坏了，不如直接给一条去浏览器的路。
+ * 「有画面没声音、音量键还是灰的」不是解析漏了，是 VS Code 内核解不了 AAC：
+ * webview 跑在 Electron 自带的 Chromium 上，那份构建不含 AAC 解码器，而 H.264 画面
+ * 走 macOS 的 VideoToolbox 平台解码器照常能放 —— 于是画面正常、声音全无；
+ * 音量键显示成灰的也是同一个原因（拿不到可播放音轨，控件就不给它接事件）。
+ *
+ * 这一条是实测出来的（隔离的 VS Code 1.137 实例，详见 audioFix.ts 的注释）：
+ * decodeAudioData 对 AAC 直接抛 EncodingError，对 MP3 正常；静音起播 800ms 再取消静音，
+ * AAC 解出 0 字节且播放卡住，MP3 音轨解出五万多字节。同一窗口里 FLAC 解得动，
+ * 所以不是测法的问题。给 iframe 加 allow="autoplay" 也救不了 —— 那是权限，不是编解码。
+ *
+ * 能救的（论坛直传的 mp4）给一个「换 MP3 音轨」的按钮；救不了的（B 站 iframe，
+ * 音频在人家播放器里拿不到）就只留一条去浏览器的路。
  */
-function mediaNote(href: string): string {
+interface NoteOptions {
+	/** 可以走「换 MP3 音轨」的源地址（本机有 ffmpeg 时才给） */
+	fixUrl?: string;
+	/** 本来救得回来，只是本机没装 ffmpeg */
+	ffmpegMissing?: boolean;
+}
+
+function mediaNote(href: string, options: NoteOptions = {}): string {
+	const actions = options.fixUrl
+		? `<a href="#" class="fix-audio" data-src="${escapeAttr(options.fixUrl)}">换 MP3 音轨（修声音）</a>` +
+			'<span class="fix-state"></span>'
+		: options.ffmpegMissing
+			? '<span class="fix-hint" title="没检测到 ffmpeg。装好并重启 VS Code（或在设置里填 fuliba.ffmpegPath）之后，这里会出现「换 MP3 音轨」按钮">装了 ffmpeg 就能在编辑器里听</span>'
+			: '';
 	return (
-		'<figcaption class="media-note">没声音？VS Code 内核缺 AAC 解码器，音轨解不出来（音量键也会一起消失）。' +
+		'<figcaption class="media-note">音轨格式（多为 AAC）VS Code 内核解不了，所以没声音、音量键也点不动。' +
+		actions +
 		`<a href="${escapeAttr(href)}" target="_blank">在浏览器里听</a></figcaption>`
 	);
 }
@@ -154,9 +172,12 @@ function embedWatchUrl(src: string): string {
  * 这里把它们收成同一个形状：`figure.media-embed > div.media-stage > 播放器 + 拖动块`，
  * 再挂一条音轨说明。stage 的宽高只认 CSS 变量，所以拖一个等于拖全部。
  */
-function buildEmbed(inner: string, note: string): string {
+function buildEmbed(inner: string, note: string, mediaSrc?: string): string {
+	// data-media-src 是给「修声音」用的：页面拿到后据此找回对应的播放器换源
 	return (
-		'<figure class="media-embed">' +
+		'<figure class="media-embed"' +
+		(mediaSrc ? ` data-media-src="${escapeAttr(mediaSrc)}"` : '') +
+		'>' +
 		'<div class="media-stage">' +
 		inner +
 		'<span class="media-grip" title="拖动调整播放器大小（所有帖子通用）"></span>' +
@@ -242,7 +263,20 @@ function normalizePlayers($: CheerioAPI, $content: cheerio.Cheerio<AnyElement>):
 		if (poster) {
 			$v.attr('poster', absoluteUrl(poster));
 		}
-		$v.replaceWith(buildEmbed($.html($v), src ? mediaNote(src) : ''));
+		if (!src) {
+			$v.replaceWith(buildEmbed($.html($v), ''));
+			return;
+		}
+		// 直链 mp4 才有得修。已经有转好的产物时，即使当前没 ffmpeg 也该给按钮 —— 换源不需要它
+		const fixable = isFixableVideo(src);
+		const fixReady = fixable && (!!findFfmpeg() || !!cachedFixPath(src));
+		$v.replaceWith(
+			buildEmbed(
+				$.html($v),
+				mediaNote(src, { fixUrl: fixReady ? src : undefined, ffmpegMissing: fixable && !fixReady }),
+				src
+			)
+		);
 	});
 
 	$content.find('iframe.embed').each((_, el) => {
