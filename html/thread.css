@@ -358,6 +358,11 @@ body.resizing .media-stage video {
 	white-space: nowrap;
 }
 
+/* 有内容时才显眼：转码进度 / 失败原因都走这里，空着完全不占视觉重量 */
+.fix-state:not(:empty) {
+	color: var(--vscode-editor-foreground);
+}
+
 .fix-state:empty {
 	display: none;
 }

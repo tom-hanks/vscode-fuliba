@@ -226,21 +226,66 @@
 		return null;
 	}
 
-	function requestAudioFix(link) {
-		const src = link.dataset.src;
-		if (!src) {
+	/** 把按钮切到「转码中」，并支持重复调用（缓存命中时不会再走这里） */
+	function markBusy(figure) {
+		if (!figure) {
 			return;
 		}
-		const figure = figureBySrc(src);
-		const state = figure ? figure.querySelector('.fix-state') : null;
-		link.classList.add('is-busy');
-		if (state) {
-			state.textContent = '转码中…';
+		const link = figure.querySelector('.fix-audio');
+		if (link) {
+			link.classList.add('is-busy');
+			link.textContent = '转码中…';
 		}
-		vscode.postMessage({ command: 'fixAudio', url: src });
 	}
 
-	/** 换源成功：顺手把警告文案收掉，改成正向反馈 */
+	/** 进度写在按钮后面那一小块里，不占额外高度 */
+	function markProgress(figure, text) {
+		if (!figure) {
+			return;
+		}
+		const state = figure.querySelector('.fix-state');
+		if (state) {
+			state.textContent = text;
+		}
+	}
+
+	/** 修好了：收掉警告文案，改成正向反馈，并保留原视频的出口 */
+	function markDone(figure) {
+		const note = figure.querySelector('.media-note');
+		if (!note) {
+			return;
+		}
+		const original = note.querySelector('a[target="_blank"]');
+		const href = original ? original.getAttribute('href') : '';
+		note.classList.add('media-note-ok');
+		note.textContent = '音轨已换成 MP3，画面未重编码 —— 声音和音量键都正常。';
+		if (href) {
+			const link = document.createElement('a');
+			link.href = href;
+			link.target = '_blank';
+			link.textContent = '看原视频';
+			note.appendChild(link);
+		}
+	}
+
+	// 页面侧记一份「已经要过的地址」。
+	// 不能靠按钮上的 is-busy 来防重复点击 —— 排队期间按钮也会被锁上，
+	// 一旦失败解锁、用户再点，就会往队列里塞重复任务。
+	const requested = new Set();
+
+	function requestAudioFix(src, quiet) {
+		if (requested.has(src)) {
+			return;
+		}
+		requested.add(src);
+		markBusy(figureBySrc(src));
+		vscode.postMessage({ command: 'fixAudio', url: src, quiet: !!quiet });
+	}
+
+	/**
+	 * 换源。要接住播放位置：视频元素一旦改 src 就会回到 0，
+	 * 用户看到一半的视频被拉回开头，比没声音更烦。
+	 */
 	function applyAudioFix(url, nextSrc) {
 		const figure = figureBySrc(url);
 		if (!figure) {
@@ -248,9 +293,21 @@
 		}
 		const video = figure.querySelector('video');
 		if (video) {
-			const wasPlaying = !video.paused;
+			const at = video.currentTime;
+			const wasPlaying = !video.paused && !video.ended;
 			video.src = nextSrc;
 			video.load();
+			if (at > 0.1) {
+				const restore = function () {
+					video.removeEventListener('loadedmetadata', restore);
+					try {
+						video.currentTime = Math.min(at, video.duration || at);
+					} catch (e) {
+						/* duration 没就绪就算了，从 0 开始不影响听声音 */
+					}
+				};
+				video.addEventListener('loadedmetadata', restore);
+			}
 			if (wasPlaying) {
 				const played = video.play();
 				if (played && played.catch) {
@@ -258,20 +315,7 @@
 				}
 			}
 		}
-		const note = figure.querySelector('.media-note');
-		if (note) {
-			const original = note.querySelector('a[target="_blank"]');
-			const href = original ? original.getAttribute('href') : '';
-			note.classList.add('media-note-ok');
-			note.textContent = '音轨已换成 MP3（画面未重编码），声音和音量键都正常。';
-			if (href) {
-				const link = document.createElement('a');
-				link.href = href;
-				link.target = '_blank';
-				link.textContent = '看原视频';
-				note.appendChild(link);
-			}
-		}
+		markDone(figure);
 	}
 
 	function showAudioFixError(url, message, needsFfmpeg) {
@@ -279,17 +323,21 @@
 		if (!figure) {
 			return;
 		}
+		// 从「已要过」里抹掉，让用户能手动重试
+		requested.delete(url);
 		const link = figure.querySelector('.fix-audio');
 		if (link) {
+			// 手动点的那次要让按钮能再点一次；自动模式失败也留着，用户想重试还有路
 			link.classList.remove('is-busy');
+			link.textContent = '换 MP3 音轨（修声音）';
 		}
-		const state = figure.querySelector('.fix-state');
-		if (state) {
-			state.textContent = needsFfmpeg ? '本机没装 ffmpeg' : '失败：' + message;
-		}
+		markProgress(figure, needsFfmpeg ? '本机没装 ffmpeg' : '失败：' + message);
 	}
 
-	// 打开页面就问一次：哪些视频上次已经转好了。命中的直接换源，不用再点一次按钮。
+	// 自动修复只发一轮，别被重复的 audioFixes 消息触发第二遍
+	let autoRequested = false;
+
+	// 打开页面就问一次：哪些视频上次已经转好了。命中的直接换源，不用再转。
 	(function () {
 		const srcs = [];
 		document.querySelectorAll('figure.media-embed[data-media-src]').forEach(function (figure) {
@@ -302,6 +350,25 @@
 		}
 	})();
 
+	/**
+	 * 缓存没覆盖到、又确实可修的（图里有「换 MP3 音轨」按钮 = 本机能修），
+	 * 开着自动修复就自己排上队 —— 默认就该有声，不该指望用户先点一下。
+	 * 转码是扩展那边串行做的，这里只管把请求都发出去。
+	 */
+	function autoFixRest(fixed) {
+		if (autoRequested) {
+			return;
+		}
+		autoRequested = true;
+		document.querySelectorAll('figure.media-embed[data-media-src]').forEach(function (figure) {
+			const src = figure.dataset.mediaSrc;
+			if (!src || fixed[src] || !figure.querySelector('.fix-audio')) {
+				return;
+			}
+			requestAudioFix(src, true);
+		});
+	}
+
 	// 别的帖子面板拖动播放器 / 修好音轨后，扩展会把消息广播过来
 	window.addEventListener('message', function (event) {
 		const msg = event.data;
@@ -310,6 +377,15 @@
 		}
 		if (msg.command === 'playerSize') {
 			applySize(Number(msg.width) || 0, Number(msg.height) || 0);
+			return;
+		}
+		if (msg.command === 'audioFixState') {
+			const figure = figureBySrc(msg.url);
+			if (figure) {
+				markBusy(figure);
+				// 按钮上已经写着「转码中…」，这里只补数字，别再重复一遍
+				markProgress(figure, msg.state === 'working' ? msg.message || '' : '');
+			}
 			return;
 		}
 		if (msg.command === 'audioFixed') {
@@ -324,6 +400,9 @@
 			Object.keys(msg.map).forEach(function (url) {
 				applyAudioFix(url, msg.map[url]);
 			});
+			if (msg.auto !== false) {
+				autoFixRest(msg.map);
+			}
 		}
 	});
 
@@ -336,7 +415,11 @@
 		const fixLink = event.target.closest('.fix-audio');
 		if (fixLink) {
 			event.preventDefault();
-			requestAudioFix(fixLink);
+			const src = fixLink.dataset.src;
+			// 去重交给 requestAudioFix：已经在转的不再发第二次
+			if (src) {
+				requestAudioFix(src, false);
+			}
 			return;
 		}
 

@@ -2,7 +2,7 @@
   "name": "fuliba",
   "displayName": "福利吧",
   "description": "码农摸鱼神器：在 VS Code 侧边栏里刷福利吧。等编译、等依赖、等 AI 把代码写完的间隙，顺手翻两页，不用切浏览器。",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "laryers",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -276,12 +276,17 @@
         "fuliba.ffmpegPath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "ffmpeg 可执行文件的路径。留空时自动在常见位置（`/opt/homebrew/bin`、`/usr/local/bin`、`/usr/bin`）和 PATH 里查找。**只有「换 MP3 音轨（修声音）」这个功能需要它**：VS Code 的 webview 不含 AAC 解码器，论坛直传视频的声音要用 ffmpeg 把音轨转成 MP3 才能放出来。找不到 ffmpeg 时该按钮不会出现。"
+          "description": "ffmpeg 可执行文件的完整路径（留空则自动探测：Homebrew 常见路径、再到 PATH）。转码视频音轨时用"
         },
         "fuliba.hideReadThreads": {
           "type": "boolean",
           "default": false,
           "description": "在帖子列表中隐藏已读帖子"
+        },
+        "fuliba.autoFixAudio": {
+          "type": "boolean",
+          "default": true,
+          "description": "打开帖子时自动把视频音轨换成 MP3（需要本机有 ffmpeg）。关掉之后需要在播放器下面手动点「换 MP3 音轨」"
         },
         "fuliba.showAvatar": {
           "type": "boolean",

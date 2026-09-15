@@ -115,6 +115,17 @@ export default class Global {
 		return vscode.workspace.getConfiguration('fuliba').get<boolean>('showAvatar') === true;
 	}
 
+	/**
+	 * 打开帖子时是否自动修音轨。默认开。
+	 *
+	 * 默认开是因为「能播但没声」最容易被当成插件坏了 —— 让人先点一下按钮才知道要修，
+	 * 等于把解释成本推给用户。自动修只在直链 mp4 上发生，且结果按视频缓存，
+	 * 同一个视频一辈子只转一次。
+	 */
+	public static getAutoFixAudio(): boolean {
+		return vscode.workspace.getConfiguration('fuliba').get<boolean>('autoFixAudio') !== false;
+	}
+
 	// ---------- 播放器尺寸 ----------
 
 	/**
