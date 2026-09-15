@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="UTF-8">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline';">
+	<title>加载中</title>
+	<style>
+		body {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			height: 100vh;
+			margin: 0;
+			font-family: var(--vscode-font-family);
+			font-size: var(--vscode-font-size);
+			color: var(--vscode-descriptionForeground);
+			background: var(--vscode-editor-background);
+		}
+		.box { text-align: center; }
+		.spinner {
+			width: 28px;
+			height: 28px;
+			margin: 0 auto 14px;
+			border: 2px solid var(--vscode-progressBar-background, #0e70c0);
+			border-top-color: transparent;
+			border-radius: 50%;
+			animation: spin .8s linear infinite;
+		}
+		@keyframes spin { to { transform: rotate(360deg); } }
+	</style>
+</head>
+<body>
+	<div class="box">
+		<div class="spinner"></div>
+		<p>正在从福利吧拉取内容…</p>
+	</div>
+</body>
+</html>

@@ -1,0 +1,248 @@
+{
+  "name": "fuliba",
+  "displayName": "福利吧",
+  "description": "在 VS Code 里浏览福利吧论坛",
+  "version": "0.1.0",
+  "publisher": "laryers",
+  "license": "MIT",
+  "icon": "resources/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tom-hanks/vscode-fuliba"
+  },
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "fuliba",
+    "discuz",
+    "forum",
+    "福利吧"
+  ],
+  "activationEvents": [
+    "onView:fuliba-forums",
+    "onCommand:fuliba.setCookie",
+    "onCommand:fuliba.openThread"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "fuliba.setCookie",
+        "title": "导入 Cookie",
+        "category": "福利吧",
+        "icon": "$(key)"
+      },
+      {
+        "command": "fuliba.clearCookie",
+        "title": "清除 Cookie",
+        "category": "福利吧"
+      },
+      {
+        "command": "fuliba.refreshForums",
+        "title": "刷新版块",
+        "category": "福利吧",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "fuliba.refreshNode",
+        "title": "刷新",
+        "category": "福利吧",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "fuliba.openThread",
+        "title": "打开指定帖子",
+        "category": "福利吧",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "fuliba.search",
+        "title": "搜索",
+        "category": "福利吧",
+        "icon": "$(search)"
+      },
+      {
+        "command": "fuliba.prevPage",
+        "title": "上一页",
+        "category": "福利吧",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "fuliba.nextPage",
+        "title": "下一页",
+        "category": "福利吧",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "fuliba.jumpFirst",
+        "title": "返回首页",
+        "category": "福利吧",
+        "icon": "$(debug-step-back)"
+      },
+      {
+        "command": "fuliba.copyLink",
+        "title": "复制链接",
+        "category": "福利吧"
+      },
+      {
+        "command": "fuliba.copyTitleLink",
+        "title": "复制标题和链接",
+        "category": "福利吧"
+      },
+      {
+        "command": "fuliba.openInBrowser",
+        "title": "在浏览器中打开",
+        "category": "福利吧"
+      },
+      {
+        "command": "fuliba.markRead",
+        "title": "标为已读",
+        "category": "福利吧"
+      },
+      {
+        "command": "fuliba.settings",
+        "title": "设置",
+        "category": "福利吧",
+        "icon": "$(gear)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "fuliba",
+          "title": "福利吧",
+          "icon": "resources/fuliba.svg"
+        }
+      ]
+    },
+    "views": {
+      "fuliba": [
+        {
+          "id": "fuliba-forums",
+          "name": "版块"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "fuliba-forums",
+        "contents": "尚未导入 Cookie，无法访问福利吧。\n\n福利吧需要登录后才能浏览版块和帖子。\n\n[导入 Cookie](command:fuliba.setCookie)\n\n导入方法：浏览器登录 www.wnflb2023.com 后，按 F12 → Network → 刷新页面 → 点任意请求 → 复制 Request Headers 里的 Cookie 值，粘贴进来即可。"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "fuliba.refreshForums",
+          "when": "view == fuliba-forums",
+          "group": "navigation@1"
+        },
+        {
+          "command": "fuliba.openThread",
+          "when": "view == fuliba-forums",
+          "group": "navigation@2"
+        },
+        {
+          "command": "fuliba.search",
+          "when": "view == fuliba-forums",
+          "group": "navigation@3"
+        },
+        {
+          "command": "fuliba.setCookie",
+          "when": "view == fuliba-forums",
+          "group": "navigation@4"
+        },
+        {
+          "command": "fuliba.settings",
+          "when": "view == fuliba-forums",
+          "group": "navigation@5"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "fuliba.prevPage",
+          "when": "view == fuliba-forums && viewItem == dir",
+          "group": "inline@0"
+        },
+        {
+          "command": "fuliba.nextPage",
+          "when": "view == fuliba-forums && viewItem == dir",
+          "group": "inline@1"
+        },
+        {
+          "command": "fuliba.refreshNode",
+          "when": "view == fuliba-forums && viewItem =~ /^(dir|group)$/",
+          "group": "inline@2"
+        },
+        {
+          "command": "fuliba.jumpFirst",
+          "when": "view == fuliba-forums && viewItem == dir",
+          "group": "inline@3"
+        },
+        {
+          "command": "fuliba.copyLink",
+          "when": "view == fuliba-forums && viewItem == item"
+        },
+        {
+          "command": "fuliba.copyTitleLink",
+          "when": "view == fuliba-forums && viewItem == item"
+        },
+        {
+          "command": "fuliba.openInBrowser",
+          "when": "view == fuliba-forums && viewItem == item"
+        },
+        {
+          "command": "fuliba.markRead",
+          "when": "view == fuliba-forums && viewItem == item"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "福利吧",
+      "properties": {
+        "fuliba.siteUrl": {
+          "type": "string",
+          "default": "https://www.wnflb2023.com",
+          "description": "论坛站点地址"
+        },
+        "fuliba.hideReadThreads": {
+          "type": "boolean",
+          "default": false,
+          "description": "在帖子列表中隐藏已读帖子"
+        },
+        "fuliba.showAvatar": {
+          "type": "boolean",
+          "default": false,
+          "description": "在帖子详情里显示用户头像（每个楼层一张图，打开会拖慢加载）"
+        },
+        "fuliba.requestInterval": {
+          "type": "number",
+          "default": 800,
+          "description": "两次请求之间的最小间隔（毫秒），用于降低触发论坛风控的概率"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.9.2",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "art-template": "^4.13.2",
+    "axios": "^1.7.0",
+    "cheerio": "^1.2.0",
+    "domhandler": "^5.0.3",
+    "iconv-lite": "^0.6.3"
+  }
+}

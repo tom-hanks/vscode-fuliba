@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="UTF-8">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; media-src {{cspSource}} https:; frame-src {{embedHosts}}; style-src {{cspSource}} 'unsafe-inline'; script-src 'nonce-{{nonce}}' {{cspSource}}; font-src {{cspSource}};">
+	<link rel="stylesheet" href="{{contextPath}}/thread.css">
+	<title>{{thread.title}}</title>
+</head>
+<body data-page="{{pageNow}}">
+	<header class="toolbar">
+		<div class="toolbar-main">
+			<h1 class="title">{{thread.title}}</h1>
+			<div class="meta">
+				{{if thread.forumName}}<span class="chip">{{thread.forumName}}</span>{{/if}}
+				<span class="chip">{{thread.posts.length}} 层</span>
+				<!-- 页码始终显示：只有一页时也要让用户知道「没被截断」 -->
+				<span class="chip">第 {{pageNow}} / {{pageTotal}} 页</span>
+			</div>
+		</div>
+		<div class="toolbar-actions">
+			<button data-command="refresh" title="重新拉取本页">刷新</button>
+			<button data-command="copyLink" title="复制帖子链接">复制链接</button>
+			<button data-command="openInBrowser" title="在浏览器中打开">浏览器打开</button>
+		</div>
+	</header>
+
+	<main class="posts">
+		{{each thread.posts post}}
+		<article class="post{{if post.isOriginalPost}} is-op{{/if}}">
+			<div class="post-side{{if !showAvatar || !post.avatar}} no-avatar{{/if}}">
+				{{if showAvatar && post.avatar}}<img class="avatar" src="{{post.avatar}}" alt="" referrerpolicy="no-referrer">{{/if}}
+				<div class="author" title="{{post.author}}">{{post.author}}</div>
+				<div class="floor">{{post.floor}}</div>
+			</div>
+			<div class="post-main">
+				<div class="post-head">
+					<span class="time">{{post.time}}</span>
+				</div>
+				<div class="post-content">{{@post.content}}</div>
+			</div>
+		</article>
+		{{/each}}
+	</main>
+
+	{{if pageTotal > 1}}
+	<footer class="pager">
+		<button data-page="1" {{if pageNow <= 1}}disabled{{/if}}>首页</button>
+		<button data-page="{{pageNow - 1}}" {{if pageNow <= 1}}disabled{{/if}}>上一页</button>
+		<span class="pager-info">{{pageNow}} / {{pageTotal}}</span>
+		<button data-page="{{pageNow + 1}}" {{if pageNow >= pageTotal}}disabled{{/if}}>下一页</button>
+		<button data-page="{{pageTotal}}" {{if pageNow >= pageTotal}}disabled{{/if}}>末页</button>
+	</footer>
+	{{/if}}
+
+	<script nonce="{{nonce}}" src="{{contextPath}}/thread.js"></script>
+</body>
+</html>

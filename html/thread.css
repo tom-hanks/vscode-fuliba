@@ -1,0 +1,373 @@
+/* 福利吧帖子详情样式。颜色全部走 VS Code 主题变量，自动适配浅色/深色。 */
+
+:root {
+	--border: var(--vscode-panel-border, rgba(128, 128, 128, 0.3));
+	--muted: var(--vscode-descriptionForeground);
+	--link: var(--vscode-textLink-foreground);
+	--card: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.06));
+	--accent: var(--vscode-textLink-foreground);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	font-family: var(--vscode-font-family);
+	font-size: var(--vscode-font-size);
+	line-height: 1.75;
+	color: var(--vscode-editor-foreground);
+	background: var(--vscode-editor-background);
+	word-wrap: break-word;
+}
+
+/* ---------- 顶部工具栏 ---------- */
+
+.toolbar {
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	display: flex;
+	align-items: flex-start;
+	gap: 16px;
+	padding: 14px 28px;
+	background: var(--vscode-editor-background);
+	border-bottom: 1px solid var(--border);
+}
+
+.toolbar-main {
+	flex: 1;
+	min-width: 0;
+}
+
+.title {
+	margin: 0 0 6px;
+	font-size: 1.25em;
+	font-weight: 600;
+	line-height: 1.45;
+}
+
+.meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.chip {
+	padding: 1px 8px;
+	font-size: 0.82em;
+	color: var(--muted);
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	white-space: nowrap;
+}
+
+.toolbar-actions {
+	display: flex;
+	gap: 6px;
+	flex-shrink: 0;
+}
+
+button {
+	padding: 4px 12px;
+	font-family: inherit;
+	font-size: 0.88em;
+	color: var(--vscode-button-secondaryForeground);
+	background: var(--vscode-button-secondaryBackground);
+	border: none;
+	border-radius: 3px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+button:hover:not(:disabled) {
+	background: var(--vscode-button-secondaryHoverBackground);
+}
+
+button:disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+
+/* ---------- 楼层 ---------- */
+
+.posts {
+	padding: 8px 28px 40px;
+}
+
+.post {
+	display: flex;
+	gap: 20px;
+	padding: 18px 0;
+	border-bottom: 1px solid var(--border);
+}
+
+.post.is-op .post-side {
+	border-left: 2px solid var(--accent);
+	padding-left: 10px;
+	margin-left: -12px;
+}
+
+.post-side {
+	width: 116px;
+	flex-shrink: 0;
+	text-align: center;
+}
+
+/* 不显示头像时收窄左侧栏，免得留一块空白 */
+.post-side.no-avatar {
+	width: 84px;
+}
+
+.avatar {
+	width: 56px;
+	height: 56px;
+	border-radius: 50%;
+	object-fit: cover;
+	background: var(--card);
+}
+
+.author {
+	margin-top: 8px;
+	font-size: 0.9em;
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.floor {
+	margin-top: 2px;
+	font-size: 0.8em;
+	color: var(--muted);
+}
+
+.post-main {
+	flex: 1;
+	min-width: 0;
+}
+
+.post-head {
+	margin-bottom: 8px;
+	font-size: 0.82em;
+	color: var(--muted);
+}
+
+/* ---------- 正文排版 ---------- */
+
+/*
+ * 正文图默认不加载：webview 一设上 html 浏览器就会去抓图，图多的帖子又慢又费流量。
+ * 服务端输出的是这个占位块，真地址放在 data-src 上，由 thread.js 悬停预览、点击展开。
+ */
+.img-slot {
+	display: inline-block;
+	padding: 8px 16px;
+	margin: 4px 0;
+	font-size: 0.88em;
+	color: var(--muted);
+	background: var(--card);
+	border: 1px dashed var(--border);
+	border-radius: 4px;
+	cursor: zoom-in;
+	user-select: none;
+}
+
+.img-slot:hover {
+	color: var(--link);
+	border-color: var(--link);
+}
+
+/*
+ * 悬停预览浮层。pointer-events 必须是 none：否则鼠标移到浮层上就算离开了占位块，
+ * 浮层消失、鼠标又落回占位块，浮层再出现 —— 来回闪。
+ */
+#img-preview {
+	position: fixed;
+	z-index: 150;
+	max-width: 480px;
+	max-height: 360px;
+	padding: 6px;
+	font-size: 0.86em;
+	color: var(--muted);
+	background: var(--vscode-editorWidget-background, #252526);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+	pointer-events: none;
+}
+
+#img-preview img {
+	display: block;
+	max-width: 100%;
+	max-height: 340px;
+	border-radius: 4px;
+}
+
+.post-content img {
+	max-width: 100%;
+	height: auto;
+	border-radius: 4px;
+	cursor: zoom-in;
+}
+
+/*
+ * 视频默认给个克制的尺寸：论坛原页面会把播放器铺满整个宽度，
+ * 在编辑器里太占地方。要放大用播放器自带的全屏按钮。
+ */
+.post-content video {
+	display: block;
+	max-width: 100%;
+	max-height: 160px;
+	margin: 8px 0;
+	border-radius: 6px;
+	background: #000;
+}
+
+.post-content iframe {
+	display: block;
+	width: 100%;
+	max-width: 320px;
+	height: 160px;
+	margin: 8px 0;
+	border: 0;
+	border-radius: 6px;
+	background: #000;
+}
+
+.post-content img.zoomed {
+	position: fixed;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	max-width: none;
+	object-fit: contain;
+	background: rgba(0, 0, 0, 0.9);
+	z-index: 100;
+	cursor: zoom-out;
+	border-radius: 0;
+}
+
+.post-content a {
+	color: var(--link);
+	text-decoration: none;
+}
+
+.post-content a:hover {
+	text-decoration: underline;
+}
+
+.post-content p {
+	margin: 0.6em 0;
+}
+
+.post-content blockquote {
+	margin: 0.8em 0;
+	padding: 8px 14px;
+	color: var(--muted);
+	background: var(--card);
+	border-left: 3px solid var(--border);
+	border-radius: 0 3px 3px 0;
+}
+
+.post-content pre,
+.post-content code {
+	font-family: var(--vscode-editor-font-family, monospace);
+	font-size: 0.92em;
+	background: var(--card);
+	border-radius: 3px;
+}
+
+.post-content pre {
+	padding: 10px 14px;
+	overflow-x: auto;
+}
+
+.post-content code {
+	padding: 1px 5px;
+}
+
+.post-content pre code {
+	padding: 0;
+	background: none;
+}
+
+.post-content table {
+	border-collapse: collapse;
+	max-width: 100%;
+	display: block;
+	overflow-x: auto;
+}
+
+.post-content th,
+.post-content td {
+	padding: 6px 12px;
+	border: 1px solid var(--border);
+}
+
+/* 论坛附件/引用等块级元素 */
+.post-content .quote,
+.post-content .blockcode {
+	margin: 0.8em 0;
+	padding: 8px 14px;
+	background: var(--card);
+	border-radius: 3px;
+	font-size: 0.94em;
+}
+
+/* ---------- 底部翻页 ---------- */
+
+.pager {
+	position: sticky;
+	bottom: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 12px 28px;
+	background: var(--vscode-editor-background);
+	border-top: 1px solid var(--border);
+}
+
+.pager-info {
+	font-size: 0.88em;
+	color: var(--muted);
+	padding: 0 6px;
+}
+
+/* 窄窗口下作者栏移到上方 */
+@media (max-width: 620px) {
+	.post {
+		flex-direction: column;
+		gap: 10px;
+	}
+
+	.post-side {
+		width: auto;
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		text-align: left;
+	}
+
+	.post.is-op .post-side {
+		margin-left: 0;
+	}
+
+	.avatar {
+		width: 36px;
+		height: 36px;
+	}
+
+	.author {
+		margin-top: 0;
+	}
+
+	.toolbar,
+	.posts,
+	.pager {
+		padding-left: 16px;
+		padding-right: 16px;
+	}
+}
