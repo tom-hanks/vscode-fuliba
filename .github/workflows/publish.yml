@@ -1,0 +1,35 @@
+name: Publish
+
+# 发布动作放在 GitHub 的境外 runner 上跑。
+# 原因：从中国大陆直连时，marketplace 的认证 API（/_apis/gallery）会被静默丢包 ——
+# 不带认证的请求 0.9 秒就回，带上 PAT 就一个字节都收不到，只能干等到超时。
+# 这与包体积、上传带宽都无关（实测上行 1.86 MB/s，5 MB 三秒传完）。
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Publish to VS Code Marketplace
+        # --skip-duplicate：版本已存在时安静跳过，方便重跑
+        run: npx vsce publish --skip-duplicate -p "$VSCE_PAT"
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
