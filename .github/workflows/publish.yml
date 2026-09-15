@@ -1,10 +1,5 @@
 name: Publish
 
-# 发布动作放在 GitHub 的境外 runner 上跑。
-# 原因：从中国大陆直连时，marketplace 的认证 API（/_apis/gallery）会被静默丢包 ——
-# 不带认证的请求 0.9 秒就回，带上 PAT 就一个字节都收不到，只能干等到超时。
-# 这与包体积、上传带宽都无关（实测上行 1.86 MB/s，5 MB 三秒传完）。
-
 on:
   push:
     tags:
@@ -28,8 +23,24 @@ jobs:
       - name: Compile
         run: npm run compile
 
+      # 诊断：本地和 GitHub runner 都在认证那一步挂 180 秒，与网络位置无关。
+      # 先单独确认 PAT 本身能不能被 marketplace 接受。
+      - name: Diagnose PAT
+        continue-on-error: true
+        run: |
+          U="https://marketplace.visualstudio.com/_apis/gallery/publishers/laryers?api-version=7.2-preview.1"
+          echo "--- 1. baseline: no auth ---"
+          curl -sS -o /dev/null -w "    HTTP %{http_code} in %{time_total}s\n" --max-time 30 "$U" || echo "    (failed)"
+          echo "--- 2. with PAT ---"
+          curl -sS -o /tmp/pub.json -w "    HTTP %{http_code} in %{time_total}s\n" --max-time 75 \
+            -u ":$VSCE_PAT" "$U" || echo "    (timed out / failed)"
+          echo "--- 3. response body ---"
+          head -c 300 /tmp/pub.json 2>/dev/null || echo "    (empty)"
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
       - name: Publish to VS Code Marketplace
-        # --skip-duplicate：版本已存在时安静跳过，方便重跑
-        run: npx vsce publish --skip-duplicate -p "$VSCE_PAT"
+        continue-on-error: true
+        run: npx vsce publish --skip-duplicate --loglevel trace -p "$VSCE_PAT"
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
