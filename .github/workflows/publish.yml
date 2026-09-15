@@ -23,24 +23,19 @@ jobs:
       - name: Compile
         run: npm run compile
 
-      # 诊断：本地和 GitHub runner 都在认证那一步挂 180 秒，与网络位置无关。
-      # 先单独确认 PAT 本身能不能被 marketplace 接受。
+      # 连通性探针：区分「PAT 不被接受」和「发布流程本身有问题」。
+      # 实测此步 0.07 秒返回 200，说明 PAT 与 runner 网络都正常。
       - name: Diagnose PAT
         continue-on-error: true
         run: |
           U="https://marketplace.visualstudio.com/_apis/gallery/publishers/laryers?api-version=7.2-preview.1"
-          echo "--- 1. baseline: no auth ---"
-          curl -sS -o /dev/null -w "    HTTP %{http_code} in %{time_total}s\n" --max-time 30 "$U" || echo "    (failed)"
-          echo "--- 2. with PAT ---"
-          curl -sS -o /tmp/pub.json -w "    HTTP %{http_code} in %{time_total}s\n" --max-time 75 \
+          echo "--- with PAT ---"
+          curl -sS -o /dev/null -w "    HTTP %{http_code} in %{time_total}s\n" --max-time 75 \
             -u ":$VSCE_PAT" "$U" || echo "    (timed out / failed)"
-          echo "--- 3. response body ---"
-          head -c 300 /tmp/pub.json 2>/dev/null || echo "    (empty)"
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Publish to VS Code Marketplace
-        continue-on-error: true
-        run: npx vsce publish --skip-duplicate --loglevel trace -p "$VSCE_PAT"
+        run: npx vsce publish --skip-duplicate -p "$VSCE_PAT"
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
