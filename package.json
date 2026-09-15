@@ -1,11 +1,15 @@
 {
   "name": "fuliba",
   "displayName": "福利吧",
-  "description": "在 VS Code 里浏览福利吧论坛",
-  "version": "0.2.0",
+  "description": "码农摸鱼神器：在 VS Code 侧边栏里刷福利吧。等编译、等依赖、等 AI 把代码写完的间隙，顺手翻两页，不用切浏览器。",
+  "version": "0.2.1",
   "publisher": "laryers",
   "license": "MIT",
   "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#7A2B1A",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/tom-hanks/vscode-fuliba"
@@ -20,7 +24,8 @@
     "fuliba",
     "discuz",
     "forum",
-    "福利吧"
+    "福利吧",
+    "摸鱼"
   ],
   "activationEvents": [
     "onView:fuliba-forums",
