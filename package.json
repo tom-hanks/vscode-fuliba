@@ -2,7 +2,7 @@
   "name": "fuliba",
   "displayName": "福利吧",
   "description": "在 VS Code 里浏览福利吧论坛",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "laryers",
   "license": "MIT",
   "icon": "resources/icon.png",
