@@ -129,6 +129,92 @@
 	window.addEventListener('scroll', closePreview, true);
 	window.addEventListener('resize', closePreview);
 
+	/* ---------------- 播放器：拖右上角改尺寸，改一次全站通用 ---------------- */
+
+	// 拖动的上下限。比这更小就只剩个黑框，更大则一屏塞不下。
+	const SIZE_MIN = { w: 200, h: 120 };
+	const SIZE_MAX = { w: 1600, h: 1200 };
+
+	function clamp(value, min, max) {
+		return Math.min(max, Math.max(min, Math.round(value)));
+	}
+
+	/** 尺寸只落在 :root 的两个变量上，页面上所有 .media-stage 都读它，所以一次拖动全体生效 */
+	function applySize(w, h) {
+		document.documentElement.style.setProperty('--media-w', w + 'px');
+		document.documentElement.style.setProperty('--media-h', h + 'px');
+	}
+
+	// 拖动过程中每一帧都写配置会很浪费，松手后延迟一下再落盘
+	let saveTimer = null;
+	function scheduleSave(w, h) {
+		clearTimeout(saveTimer);
+		saveTimer = setTimeout(function () {
+			vscode.postMessage({ command: 'playerSize', width: w, height: h });
+		}, 400);
+	}
+
+	document.querySelectorAll('.media-grip').forEach(function (grip) {
+		grip.addEventListener('pointerdown', function (event) {
+			event.preventDefault();
+			event.stopPropagation();
+
+			const stage = grip.closest('.media-stage');
+			if (!stage) {
+				return;
+			}
+
+			const box = stage.getBoundingClientRect();
+			const startX = event.clientX;
+			const startY = event.clientY;
+			const startW = box.width;
+			const startH = box.height;
+			let latest = null;
+
+			// 抓住指针，鼠标划过 iframe 也不会把事件弄丢；CSS 里再补一刀 pointer-events:none。
+			// 合成事件（比如自动化测试里派发的）没有真实指针，抓取会抛错，不能让它打断拖动。
+			try {
+				if (grip.setPointerCapture) {
+					grip.setPointerCapture(event.pointerId);
+				}
+			} catch (err) {
+				/* 抓不到就算了，后面还有 pointer-events:none 兜着 */
+			}
+			document.body.classList.add('resizing');
+
+			function onMove(moveEvent) {
+				// 拖动块在右上角：往右加宽、往上加高
+				latest = {
+					w: clamp(startW + (moveEvent.clientX - startX), SIZE_MIN.w, SIZE_MAX.w),
+					h: clamp(startH - (moveEvent.clientY - startY), SIZE_MIN.h, SIZE_MAX.h),
+				};
+				applySize(latest.w, latest.h);
+			}
+
+			function onEnd() {
+				grip.removeEventListener('pointermove', onMove);
+				grip.removeEventListener('pointerup', onEnd);
+				grip.removeEventListener('pointercancel', onEnd);
+				document.body.classList.remove('resizing');
+				if (latest) {
+					scheduleSave(latest.w, latest.h);
+				}
+			}
+
+			grip.addEventListener('pointermove', onMove);
+			grip.addEventListener('pointerup', onEnd);
+			grip.addEventListener('pointercancel', onEnd);
+		});
+	});
+
+	// 别的帖子面板拖动后，扩展会把新尺寸广播过来，让所有打开着的详情页保持一致
+	window.addEventListener('message', function (event) {
+		const msg = event.data;
+		if (msg && msg.command === 'playerSize') {
+			applySize(Number(msg.width) || 0, Number(msg.height) || 0);
+		}
+	});
+
 	/*
 	 * 点击按优先级分流，写在同一个监听器里而不是各挂一个：
 	 * 各挂一个的话，点在「包着链接的图片」上会同时触发图片和外链两个分支。

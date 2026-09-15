@@ -2,7 +2,7 @@
   "name": "fuliba",
   "displayName": "福利吧",
   "description": "码农摸鱼神器：在 VS Code 侧边栏里刷福利吧。等编译、等依赖、等 AI 把代码写完的间隙，顺手翻两页，不用切浏览器。",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "laryers",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -265,6 +265,13 @@
           "type": "boolean",
           "default": false,
           "description": "在帖子列表中屏蔽置顶帖（侧边栏标题栏也有同名开关，可直接切换）"
+        },
+        "fuliba.playerSize": {
+          "type": "string",
+          "default": "480x270",
+          "pattern": "^\\s*\\d{2,4}\\s*[x×*]\\s*\\d{2,4}\\s*$",
+          "patternErrorMessage": "格式形如 480x270（宽x高，单位像素）",
+          "markdownDescription": "帖子详情里播放器的显示尺寸，形如 `480x270`。也可以直接在播放器右上角拖动调整，改一次所有帖子的播放器一起生效。"
         },
         "fuliba.hideReadThreads": {
           "type": "boolean",

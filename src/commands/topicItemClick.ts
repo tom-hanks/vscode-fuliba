@@ -64,6 +64,7 @@ function renderDetail(panel: vscode.WebviewPanel, detail: ThreadDetail): void {
 		pageTotal: detail.pageTotal,
 		siteUrl: Global.getSiteUrl(),
 		showAvatar: Global.getShowAvatar(),
+		player: Global.getPlayerSize(),
 	});
 }
 
@@ -86,6 +87,23 @@ async function loadThread(panel: vscode.WebviewPanel, tid: number, page: number)
 }
 
 /**
+ * 播放器尺寸是全局一份（存设置里），所以拖动之后要把新尺寸推给其它已打开的帖子面板，
+ * 否则几个面板会各显示各的大小，看起来像没生效。
+ */
+async function savePlayerSize(origin: vscode.WebviewPanel, width: number, height: number): Promise<void> {
+	if (!width || !height) {
+		return;
+	}
+	await Global.setPlayerSize({ width, height });
+	const size = Global.getPlayerSize();
+	panels.forEach((panel) => {
+		if (panel !== origin) {
+			void panel.webview.postMessage({ command: 'playerSize', width: size.width, height: size.height });
+		}
+	});
+}
+
+/**
  * 打开（或激活已打开的）帖子详情面板。
  * 返回的 Promise 在「已读」记录写入后 resolve，调用方可以据此刷新树上的已读标记。
  */
@@ -98,35 +116,40 @@ export default async function openThread(tid: number, label = `帖子 ${tid}`): 
 
 	const panel = createPanel(tid, label);
 
-	panel.webview.onDidReceiveMessage((message: { command: string; page?: number; url?: string }) => {
-		switch (message.command) {
-			case 'pageTurning':
-				void loadThread(panel, tid, Number(message.page) || 1);
-				break;
-			case 'refresh':
-				void loadThread(panel, tid, Number(message.page) || 1);
-				break;
-			case 'login':
-				void vscode.commands.executeCommand('fuliba.setCookie');
-				break;
-			case 'openUrl':
-				handleOpenUrl(message.url);
-				break;
-			case 'openInBrowser':
-				void vscode.env.openExternal(
-					vscode.Uri.parse(`${Global.getSiteUrl()}/thread-${tid}-${Number(message.page) || 1}-1.html`)
-				);
-				break;
-			case 'copyLink':
-				void vscode.env.clipboard.writeText(
-					`${Global.getSiteUrl()}/thread-${tid}-${Number(message.page) || 1}-1.html`
-				);
-				void vscode.window.showInformationMessage('链接已复制');
-				break;
-			default:
-				break;
+	panel.webview.onDidReceiveMessage(
+		(message: { command: string; page?: number; url?: string; width?: number; height?: number }) => {
+			switch (message.command) {
+				case 'pageTurning':
+					void loadThread(panel, tid, Number(message.page) || 1);
+					break;
+				case 'refresh':
+					void loadThread(panel, tid, Number(message.page) || 1);
+					break;
+				case 'playerSize':
+					void savePlayerSize(panel, Number(message.width) || 0, Number(message.height) || 0);
+					break;
+				case 'login':
+					void vscode.commands.executeCommand('fuliba.setCookie');
+					break;
+				case 'openUrl':
+					handleOpenUrl(message.url);
+					break;
+				case 'openInBrowser':
+					void vscode.env.openExternal(
+						vscode.Uri.parse(`${Global.getSiteUrl()}/thread-${tid}-${Number(message.page) || 1}-1.html`)
+					);
+					break;
+				case 'copyLink':
+					void vscode.env.clipboard.writeText(
+						`${Global.getSiteUrl()}/thread-${tid}-${Number(message.page) || 1}-1.html`
+					);
+					void vscode.window.showInformationMessage('链接已复制');
+					break;
+				default:
+					break;
+			}
 		}
-	});
+	);
 
 	// 先发起请求，写入已读记录与它并行，不额外拖慢首屏
 	void loadThread(panel, tid, 1);

@@ -4,6 +4,13 @@
 	<meta charset="UTF-8">
 	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; media-src {{cspSource}} https:; frame-src {{embedHosts}}; style-src {{cspSource}} 'unsafe-inline'; script-src 'nonce-{{nonce}}' {{cspSource}}; font-src {{cspSource}};">
 	<link rel="stylesheet" href="{{contextPath}}/thread.css">
+	<!-- 播放器尺寸：拖动播放器右上角时由 thread.js 就地改这两个变量，所有播放器一起跟着变 -->
+	<style>
+		:root {
+			--media-w: {{player.width}}px;
+			--media-h: {{player.height}}px;
+		}
+	</style>
 	<title>{{thread.title}}</title>
 </head>
 <body data-page="{{pageNow}}">

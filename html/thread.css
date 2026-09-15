@@ -213,45 +213,126 @@ button:disabled {
 }
 
 /*
- * 视频默认给个克制的尺寸：论坛原页面会把播放器铺满整个宽度，
- * 在编辑器里太占地方。要放大用播放器自带的全屏按钮。
+ * 兜底：万一有播放器没被套进 .media-stage（论坛模板变体），也别让它铺满整屏。
+ * 尺寸统一由下面的 .media-stage 管，这里只管别溢出。
  */
-.post-content video {
-	display: block;
-	max-width: 100%;
-	max-height: 160px;
-	border-radius: 6px;
-	background: #000;
-}
-
+.post-content video,
 .post-content iframe {
-	display: block;
-	width: 100%;
-	max-width: 320px;
-	height: 160px;
-	border: 0;
+	max-width: 100%;
 	border-radius: 6px;
 	background: #000;
 }
 
 /*
- * 播放器外壳：iframe / video 都塞进 figure，下面挂一条音轨说明。
- * 说明不是可选项 —— VS Code 的 webview 不带 AAC 解码器，画面有声音没有是常态，
- * 不写清楚会被当成插件的 bug（详见 src/discuz.ts 的 mediaNote）。
+ * 播放器外壳。
+ * .media-stage 是个固定尺寸的黑框，宽高只认 :root 上的 --media-w / --media-h；
+ * 拖动任意一个播放器的右上角改的就是这两个变量，所以「拖一个 = 页面上所有播放器一起变」，
+ * 尺寸还会存进设置，下次打开别的帖子依然是这个大小。
  */
 .media-embed {
 	margin: 10px 0;
 }
 
-.media-embed video,
-.media-embed iframe {
-	margin: 0;
+.post-content .media-stage {
+	position: relative;
+	width: var(--media-w, 480px);
+	height: var(--media-h, 270px);
+	max-width: 100%;
+	background: #000;
+	border-radius: 6px;
+	overflow: hidden;
 }
 
+.post-content .media-stage video,
+.post-content .media-stage iframe {
+	display: block;
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	border: 0;
+	border-radius: 0;
+	background: #000;
+}
+
+/* 竖屏视频塞进固定比例的框里会留黑边，contain 保证只留白、不拉伸 */
+.post-content .media-stage video {
+	object-fit: contain;
+}
+
+/*
+ * 拖动块放右上角，不放右下角：视频原生控件的全屏按钮在右下角、
+ * B 站播放器底部也全是按钮，放右下角会跟它们抢点击。
+ */
+.media-grip {
+	position: absolute;
+	top: 0;
+	right: 0;
+	z-index: 2;
+	width: 26px;
+	height: 26px;
+	cursor: nesw-resize;
+	opacity: 0.4;
+	transition: opacity 0.15s;
+}
+
+.media-stage:hover .media-grip {
+	opacity: 1;
+}
+
+/* 斜纹就是那个「可拉伸」的视觉约定，用纯 CSS 画，不依赖字体或图片 */
+.media-grip::before {
+	content: '';
+	position: absolute;
+	inset: 4px;
+	background: repeating-linear-gradient(
+		225deg,
+		rgba(255, 255, 255, 0.95) 0 1.5px,
+		transparent 1.5px 5px
+	);
+	box-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
+}
+
+/*
+ * 拖动期间让播放器交出指针事件。否则鼠标划过 iframe 时事件会被那个跨域文档吃掉，
+ * 拖动会卡住或者直接断掉。
+ */
+body.resizing {
+	user-select: none;
+}
+
+body.resizing .media-stage iframe,
+body.resizing .media-stage video {
+	pointer-events: none;
+}
+
+/* 纯音频（mp3 这些解得了，不用那条说明，也不参与尺寸拖动） */
+.post-content .media-audio-wrap {
+	margin: 8px 0;
+}
+
+.post-content audio.media-audio {
+	display: block;
+	width: 100%;
+	max-width: 420px;
+}
+
+/*
+ * 音轨说明。不是可选文案 —— VS Code 的 webview 不带 AAC 解码器，
+ * 画面有、声音没有、音量键也不显示是常态（详见 src/discuz.ts 的 mediaNote）。
+ */
 .media-note {
 	margin-top: 4px;
 	font-size: 0.82em;
 	color: var(--muted);
+}
+
+.media-note a {
+	color: var(--link);
+}
+
+/* detectPlayer 留下的空容器：播放器由页面 JS 渲染，我们不用它，别留个空盒子 */
+.post-content div.media > div.media_container:empty {
+	display: none;
 }
 
 /*

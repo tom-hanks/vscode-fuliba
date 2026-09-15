@@ -123,13 +123,16 @@ function isAllowedEmbed(raw: string): boolean {
  * 「视频有画面没声音」不是解析漏了，是 VS Code 的天花板：webview 跑在 Electron
  * 自带的 Chromium 上，那份构建按授权要求裁掉了 AAC 解码器（microsoft/vscode#167685，
  * 官方文档也写明 webview 只保证 Wav/Mp3/Ogg/Flac 音轨）。B 站的 DASH 音轨、
- * 论坛直传的 mp4 基本全是 AAC，于是画面正常、声音全无，mp3 音轨的视频则没事。
- * iframe 的 allow="autoplay" 也救不了 —— 那是权限，不是编解码。
+ * 论坛直传的 mp4 基本全是 AAC（实测帖子里那个 mp4 的音频轨 esds OTI=0x40，就是 AAC），
+ * 而 H.264 画面是能解的 —— 于是画面正常、声音全无。
+ * 音量键消失也是同一个原因：Chromium 的媒体控件只在「有音轨」时才画静音按钮
+ * （WebKit bug 89093 / Chromium CL 1303553003），音轨解不出来就等于没有音轨。
+ * 给 iframe 加 allow="autoplay" 救不了这个 —— 那是权限，不是编解码。
  * 与其让人以为插件坏了，不如直接给一条去浏览器的路。
  */
 function mediaNote(href: string): string {
 	return (
-		'<figcaption class="media-note">没声音？VS Code 内核不含 AAC 解码器，音轨解不出来。' +
+		'<figcaption class="media-note">没声音？VS Code 内核缺 AAC 解码器，音轨解不出来（音量键也会一起消失）。' +
 		`<a href="${escapeAttr(href)}" target="_blank">在浏览器里听</a></figcaption>`
 	);
 }
@@ -141,59 +144,125 @@ function embedWatchUrl(src: string): string {
 }
 
 /**
- * 抢救藏在 <script> 里的播放器。
+ * 播放器统一收口。
  *
- * Discuz 的 [media] 标签不直接输出标签，而是
- * <script>document.write("<iframe src='...'></iframe>")</script>。
- * 清洗时删 script 会把视频一起删掉，所以先在这里把播放器捞出来落成真实 DOM。
+ * 论坛正文里的播放器有三种形态，来源各不相同：
+ *   1. `[media]` 标签 → `<script>document.write("<iframe …>")</script>`（要先把 script 拆了才看得见）
+ *   2. 论坛自己发的 `<video>` 标签（发现之门的小视频基本都是这种，还带一串行内样式）
+ *   3. `detectPlayer(id, "mp4", url, w, h)` —— 只给一个空容器，靠页面 JS 渲染，我们拿不到那个容器
+ *
+ * 这里把它们收成同一个形状：`figure.media-embed > div.media-stage > 播放器 + 拖动块`，
+ * 再挂一条音轨说明。stage 的宽高只认 CSS 变量，所以拖一个等于拖全部。
+ */
+function buildEmbed(inner: string, note: string): string {
+	return (
+		'<figure class="media-embed">' +
+		'<div class="media-stage">' +
+		inner +
+		'<span class="media-grip" title="拖动调整播放器大小（所有帖子通用）"></span>' +
+		'</div>' +
+		note +
+		'</figure>'
+	);
+}
+
+/** detectPlayer 的 type 参数 → 我们真的能播的格式。解不了的（flv/swf/rm）留着兜底链接 */
+const PLAYABLE_VIDEO_TYPES = new Set(['mp4', 'm4v', 'webm', 'ogv', 'mov']);
+const PLAYABLE_AUDIO_TYPES = new Set(['mp3', 'ogg', 'wav', 'flac']);
+
+/** script 里的文本不走 HTML 实体解码，&amp; 要自己还原回 &，否则查询串会带个假参数 */
+function decodeAmp(value: string): string {
+	return value.replace(/&amp;/gi, '&');
+}
+
+/**
+ * 抢救藏在 <script> 里的播放器。
+ * 清洗时会删掉全部 script，不先在这里把播放器落成真实 DOM，视频会跟着一起消失。
  * 只按白名单重建，原有属性一概丢弃，避免把注入内容带进来。
  */
 function rescueMedia($: CheerioAPI, $content: cheerio.Cheerio<AnyElement>): void {
 	$content.find('script').each((_, el) => {
 		const code = $(el).text();
-		if (!/<(?:iframe|video)\b/i.test(code)) {
-			return;
-		}
-
 		const nodes: string[] = [];
 
-		// 第三方播放器：<iframe src='https://player.bilibili.com/player.html?bvid=xxx'>
-		const iframeRe = /<iframe[^>]*\bsrc\s*=\s*['"]([^'"]+)['"][^>]*>/gi;
-		let match: RegExpExecArray | null;
-		while ((match = iframeRe.exec(code)) !== null) {
-			const src = match[1].startsWith('//') ? `https:${match[1]}` : match[1];
-			if (isAllowedEmbed(src)) {
-				// allow 不是「让它有声音」的开关（音轨是 AAC，解不了），而是把全屏、
-				// 画中画、加密媒体这些能力显式授予子文档，否则播放器自己的按钮会是灰的。
-				nodes.push(
-					'<figure class="media-embed">' +
-						`<iframe class="embed" src="${escapeAttr(src)}"` +
-						' allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen>' +
-						'</iframe>' +
-						mediaNote(embedWatchUrl(src)) +
-						'</figure>'
-				);
+		if (/<(?:iframe|video)\b/i.test(code)) {
+			// 第三方播放器：<iframe src='//player.bilibili.com/player.html?bvid=xxx'>
+			const iframeRe = /<iframe[^>]*\bsrc\s*=\s*['"]([^'"]+)['"][^>]*>/gi;
+			let match: RegExpExecArray | null;
+			while ((match = iframeRe.exec(code)) !== null) {
+				const raw = decodeAmp(match[1]);
+				const src = raw.startsWith('//') ? `https:${raw}` : raw;
+				if (isAllowedEmbed(src)) {
+					nodes.push(`<iframe class="embed" src="${escapeAttr(src)}"></iframe>`);
+				}
+			}
+
+			// 直链视频：<video src="https://.../x.mp4" poster="...">
+			const videoRe = /<video[^>]*\bsrc\s*=\s*['"]([^'"]+)['"][^>]*>/gi;
+			while ((match = videoRe.exec(code)) !== null) {
+				const src = absoluteUrl(decodeAmp(match[1]));
+				const poster = match[0].match(/poster\s*=\s*['"]([^'"]+)['"]/i);
+				const posterAttr = poster ? ` poster="${escapeAttr(absoluteUrl(decodeAmp(poster[1])))}"` : '';
+				nodes.push(`<video class="media" src="${escapeAttr(src)}"${posterAttr}></video>`);
 			}
 		}
 
-		// 直链视频：<video src="https://.../x.mp4" poster="...">
-		const videoRe = /<video[^>]*\bsrc\s*=\s*['"]([^'"]+)['"][^>]*>/gi;
-		while ((match = videoRe.exec(code)) !== null) {
-			const src = absoluteUrl(match[1]);
-			const poster = match[0].match(/poster\s*=\s*['"]([^'"]+)['"]/i);
-			const posterAttr = poster ? ` poster="${escapeAttr(absoluteUrl(poster[1]))}"` : '';
-			nodes.push(
-				'<figure class="media-embed">' +
-					`<video class="media" src="${escapeAttr(src)}"${posterAttr}` +
-					' controls preload="metadata" playsinline></video>' +
-					mediaNote(src) +
-					'</figure>'
-			);
+		// detectPlayer("mp4_ASt", "mp4", "https://…/x.mp4", "500", "375")
+		// 前一个参数是容器 id、后面两个是尺寸，都没用 —— 我们自己造播放器，尺寸交给拖动。
+		const dpRe = /detectPlayer\(\s*['"][^'"]*['"]\s*,\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]/gi;
+		let dp: RegExpExecArray | null;
+		while ((dp = dpRe.exec(code)) !== null) {
+			const kind = dp[1].toLowerCase();
+			const url = absoluteUrl(decodeAmp(dp[2]));
+			if (PLAYABLE_VIDEO_TYPES.has(kind)) {
+				nodes.push(`<video class="media" src="${escapeAttr(url)}"></video>`);
+			} else if (PLAYABLE_AUDIO_TYPES.has(kind)) {
+				nodes.push(`<audio class="media-audio" src="${escapeAttr(url)}"></audio>`);
+			}
 		}
 
 		if (nodes.length) {
 			$(el).replaceWith(nodes.join(''));
 		}
+	});
+}
+
+/** 把正文里所有播放器补全属性、套上可拖动的外框、挂上音轨说明 */
+function normalizePlayers($: CheerioAPI, $content: cheerio.Cheerio<AnyElement>): void {
+	$content.find('video').each((_, el) => {
+		const $v = $(el);
+		// 论坛给 <video> 带了自己的行内样式，留着会跟外框尺寸打架，摘掉交给 CSS 统一管
+		$v.removeAttr('style');
+		$v.attr({ class: 'media', controls: '', preload: 'metadata', playsinline: '' });
+		const src = absoluteUrl($v.attr('src') || '');
+		if (src) {
+			$v.attr('src', src);
+		}
+		const poster = $v.attr('poster');
+		if (poster) {
+			$v.attr('poster', absoluteUrl(poster));
+		}
+		$v.replaceWith(buildEmbed($.html($v), src ? mediaNote(src) : ''));
+	});
+
+	$content.find('iframe.embed').each((_, el) => {
+		const $f = $(el);
+		// allow 不是「让它有声音」的开关（音轨是 AAC，解不了），而是把全屏、画中画、
+		// 加密媒体这些能力显式授予子文档，否则播放器自己的按钮会是灰的。
+		$f.attr({ allow: 'autoplay; fullscreen; encrypted-media; picture-in-picture', allowfullscreen: '' });
+		$f.replaceWith(buildEmbed($.html($f), mediaNote(embedWatchUrl($f.attr('src') || ''))));
+	});
+
+	$content.find('audio').each((_, el) => {
+		const $a = $(el);
+		$a.removeAttr('style');
+		$a.attr({ class: 'media-audio', controls: '', preload: 'metadata' });
+		const src = absoluteUrl($a.attr('src') || '');
+		if (src) {
+			$a.attr('src', src);
+		}
+		// 纯音频多是 mp3，VS Code 解得动，不用挂那条说明，也不参与尺寸拖动
+		$a.replaceWith(`<figure class="media-embed media-audio-wrap">${$.html($a)}</figure>`);
 	});
 }
 
@@ -212,6 +281,10 @@ function sanitizeContent($: CheerioAPI, $content: cheerio.Cheerio<AnyElement>): 
 	// 附件的悬浮浮层（div.tip.tip_4）：一串 javascript: 链接加两个旋转图标，
 	// 平时藏在附件名下面，展开只有噪音，整块不要。
 	$content.find('div.tip').remove();
+
+	// 播放器统一收口：补属性、套外框、挂说明。必须在 script 清完之后做 ——
+	// 抢救出来的播放器这时候才以真实节点存在，而正文里本就有的 <video> 也还没被别处动过。
+	normalizePlayers($, $content);
 
 	// Discuz 的自定义外壳标签，浏览器不认，拆掉外壳但保留内容
 	$content.find('ignore_js_op').each((_, el) => {

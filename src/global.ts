@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ForumGroup, ThreadSort } from './models';
+import { ForumGroup, PlayerSize, ThreadSort } from './models';
 
 const SECRET_COOKIE_KEY = 'fuliba.cookie';
 const STATE_READ_TIDS = 'fuliba.readTids';
@@ -13,6 +13,19 @@ const STATE_VISIBLE_FIDS = 'fuliba.visibleFids';
 const READ_TID_LIMIT = 3000;
 
 const VALID_SORTS: ThreadSort[] = ['lastpost', 'dateline', 'heats'];
+
+/** 播放器默认尺寸。480×270 在侧边栏和普通编辑器宽度下都还看得清 */
+const DEFAULT_PLAYER_SIZE: PlayerSize = { width: 480, height: 270 };
+/** 拖动的上下限：比这更小就只剩个黑框，更大则一屏放不下 */
+const PLAYER_MIN = { width: 200, height: 120 };
+const PLAYER_MAX = { width: 1600, height: 1200 };
+
+function clamp(value: number, min: number, max: number): number {
+	if (!Number.isFinite(value)) {
+		return min;
+	}
+	return Math.min(max, Math.max(min, Math.round(value)));
+}
 
 /**
  * 全局状态。集中管理 Cookie（存 SecretStorage 加密）、已读记录、版块缓存。
@@ -100,6 +113,36 @@ export default class Global {
 	/** 帖子详情里是否显示头像。默认关，每层一张头像会明显拖慢加载 */
 	public static getShowAvatar(): boolean {
 		return vscode.workspace.getConfiguration('fuliba').get<boolean>('showAvatar') === true;
+	}
+
+	// ---------- 播放器尺寸 ----------
+
+	/**
+	 * 播放器尺寸。存成 "480x270" 这种字符串，方便在设置里手改、也好一眼看懂。
+	 * 解析不出来或超范围就回落到默认值 —— 设置文件被手改坏不该让详情页打不开。
+	 */
+	public static getPlayerSize(): PlayerSize {
+		const raw = vscode.workspace.getConfiguration('fuliba').get<string>('playerSize');
+		const match = typeof raw === 'string' ? raw.match(/^\s*(\d{2,4})\s*[x×*]\s*(\d{2,4})\s*$/i) : null;
+		if (!match) {
+			return { ...DEFAULT_PLAYER_SIZE };
+		}
+		return {
+			width: clamp(Number(match[1]), PLAYER_MIN.width, PLAYER_MAX.width),
+			height: clamp(Number(match[2]), PLAYER_MIN.height, PLAYER_MAX.height),
+		};
+	}
+
+	/** 拖动播放器后落盘。所有帖子、所有窗口共用这一份，所以是「改一次、到处生效」 */
+	public static async setPlayerSize(size: PlayerSize): Promise<void> {
+		const width = clamp(size.width, PLAYER_MIN.width, PLAYER_MAX.width);
+		const height = clamp(size.height, PLAYER_MIN.height, PLAYER_MAX.height);
+		if (width === Global.getPlayerSize().width && height === Global.getPlayerSize().height) {
+			return;
+		}
+		await vscode.workspace
+			.getConfiguration('fuliba')
+			.update('playerSize', `${width}x${height}`, vscode.ConfigurationTarget.Global);
 	}
 
 	public static async getCookie(): Promise<string | undefined> {

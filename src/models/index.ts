@@ -110,3 +110,9 @@ export interface ThreadDetail {
 	pageNow: number;
 	pageTotal: number;
 }
+
+/** 帖子详情里播放器的显示尺寸（像素）。全局一份，拖动任意一个播放器就一起变 */
+export interface PlayerSize {
+	width: number;
+	height: number;
+}
