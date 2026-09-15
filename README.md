@@ -14,6 +14,16 @@
 
 ## 安装
 
+### 从扩展市场安装（推荐）
+
+在 VS Code 的扩展面板（`Ctrl/Cmd+Shift+X`）里搜索 **`福利吧`** 或 **`fuliba`**，点安装即可。
+
+也可以直接打开[扩展页面](https://marketplace.visualstudio.com/items?itemName=laryers.fuliba)，或在命令行里：
+
+```bash
+code --install-extension laryers.fuliba
+```
+
 ### 从源码构建
 
 ```bash
