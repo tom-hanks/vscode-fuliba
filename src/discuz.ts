@@ -5,6 +5,7 @@ import { Forum, ForumGroup, Thread, ThreadListPage, Post, ThreadDetail, ThreadSo
 import { NotFoundError } from './error';
 import Global from './global';
 import { cachedFixPath, findFfmpeg, isFixableVideo } from './audioFix';
+import { fetchThreadSupport } from './threadSupport';
 
 type CheerioAPI = ReturnType<typeof cheerio.load>;
 /** cheerio v1 不再导出 Element，节点类型统一来自 domhandler */
@@ -254,6 +255,19 @@ function normalizePlayers($: CheerioAPI, $content: cheerio.Cheerio<AnyElement>):
 		const $v = $(el);
 		// 论坛给 <video> 带了自己的行内样式，留着会跟外框尺寸打架，摘掉交给 CSS 统一管
 		$v.removeAttr('style');
+		/*
+		 * muted / autoplay 必须摘掉。
+		 *
+		 * 论坛模板给视频挂 `muted autoplay`（为了绕过浏览器的自动播放拦截）是常见写法，
+		 * 而 `muted` 是**属性级**的静音：它会同时写进 defaultMuted，之后即使我们把音轨
+		 * 换成了解得动的 MP3，元素还是静音的 —— 表现就是「换完照样没声音、音量键还是那个状态」，
+		 * 而换源那一步完全看不出问题，非常容易被误判成「方案不通」。
+		 *
+		 * autoplay 一并去掉：webview 里我们不想让一堆帖子同时开播，播放交给用户点。
+		 * 需要自动播放的场景由页面侧在换源后显式调 play()，不依赖这个属性。
+		 */
+		$v.removeAttr('muted');
+		$v.removeAttr('autoplay');
 		$v.attr({ class: 'media', controls: '', preload: 'metadata', playsinline: '' });
 		const src = absoluteUrl($v.attr('src') || '');
 		if (src) {
@@ -650,8 +664,11 @@ export async function fetchThreadDetail(tid: number, page: number): Promise<Thre
 		textOf($, $('title').get(0)).split(/[_-]/)[0].trim() ||
 		`帖子 ${tid}`;
 
-	// 面包屑里 5 个链接，只有指向 forum-N-1.html 的才是当前版块，取最后一个
-	const forumName = textOf($, $('#pt .z a[href*="forum-"]').last().get(0));
+	// 面包屑里 5 个链接，只有指向 forum-N-1.html 的才是当前版块，取最后一个。
+	// href 顺手给出 fid —— 版块 id 是「支持楼主」接口的必填参数。
+	const $board = $('#pt .z a[href*="forum-"]').last();
+	const forumName = textOf($, $board.get(0));
+	const fid = extractFid($board.attr('href') || '') || 0;
 
 	const posts: Post[] = [];
 	// 楼主帖没有 postnum 元素，靠位置判断：postlist 里第一个带正文的楼层就是楼主
@@ -715,7 +732,21 @@ export async function fetchThreadDetail(tid: number, page: number): Promise<Thre
 	}
 
 	const { pageNow, pageTotal } = parsePagination($);
-	return { tid, title, forumName, url: absoluteUrl(`thread-${tid}-${page}-1.html`), posts, pageNow, pageTotal };
+
+	// 「支持楼主」只挂在楼主楼上，而且帖子 HTML 里那一块是空的（论坛用 AJAX 填），
+	// 所以要单独请求一次插件接口。取不到就是 null，页面不显示这个按钮。
+	const support = await fetchThreadSupport(tid, fid, posts[0].pid);
+
+	return {
+		tid,
+		title,
+		forumName,
+		url: absoluteUrl(`thread-${tid}-${page}-1.html`),
+		posts,
+		pageNow,
+		pageTotal,
+		support,
+	};
 }
 
 /** 搜索帖子 */

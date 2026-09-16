@@ -139,8 +139,11 @@ export function isFixableVideo(url: string): boolean {
 	return /\.(mp4|m4v|mov)$/i.test(pathname);
 }
 
-/** 缓存目录：扩展的 globalStorage 下单独一层，卸载扩展时一起清掉 */
-function cacheDir(): string | undefined {
+/**
+ * 缓存目录：扩展的 globalStorage 下单独一层，卸载扩展时一起清掉。
+ * 本地媒体服务要按同一个目录提供文件，所以导出。
+ */
+export function cacheDir(): string | undefined {
 	const root = Global.context?.globalStorageUri?.fsPath;
 	if (!root) {
 		return undefined;

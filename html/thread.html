@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 	<meta charset="UTF-8">
-	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; media-src {{cspSource}} https:; frame-src {{embedHosts}}; style-src {{cspSource}} 'unsafe-inline'; script-src 'nonce-{{nonce}}' {{cspSource}}; font-src {{cspSource}};">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; media-src {{cspSource}} https: http://127.0.0.1:* http://localhost:* blob: data:; frame-src {{embedHosts}}; style-src {{cspSource}} 'unsafe-inline'; script-src 'nonce-{{nonce}}' {{cspSource}}; font-src {{cspSource}}; connect-src {{cspSource}} https: http://127.0.0.1:* http://localhost:* blob: data:;">
 	<link rel="stylesheet" href="{{contextPath}}/thread.css">
 	<!-- 播放器尺寸：拖动播放器右上角时由 thread.js 就地改这两个变量，所有播放器一起跟着变 -->
 	<style>
@@ -44,6 +44,28 @@
 					<span class="time">{{post.time}}</span>
 				</div>
 				<div class="post-content">{{@post.content}}</div>
+				{{if post.isOriginalPost && thread.support}}
+				<!--
+					「支持楼主」是论坛插件 she_btps 提供的，底下走 Discuz 原生评分接口。
+					这里只负责画出来和把点击转成一条消息，提交由扩展侧带 Cookie 发。
+					pid 一并带上，便于提交前核对是不是同一个帖子。
+				-->
+				<div class="support" id="thread-support" data-pid="{{thread.support.pid}}">
+					<div class="support-row">
+						<div class="support-meter" style="--count:{{thread.support.count}}">
+							<span class="support-fill"></span>
+						</div>
+						<button class="support-btn" id="support-btn" type="button" title="支持楼主">
+							<img src="{{supportIcon}}" alt="支持楼主" width="60" height="60">
+						</button>
+						<div class="support-text">
+							<div class="support-label">支持楼主</div>
+							<div class="support-count" id="support-count">{{thread.support.count}} 人支持</div>
+						</div>
+					</div>
+					<p class="support-hint" id="support-hint"></p>
+				</div>
+				{{/if}}
 			</div>
 		</article>
 		{{/each}}
@@ -59,6 +81,11 @@
 	</footer>
 	{{/if}}
 
+	<!--
+		提交「支持楼主」要用的字段由扩展算好、原样交给页面：点击时回传，
+		页面自己不拼也不改。取不到这个功能时就是 null，thread.js 会跳过。
+	-->
+	<script nonce="{{nonce}}">window.__fulibaSupport = {{@supportJson}};</script>
 	<script nonce="{{nonce}}" src="{{contextPath}}/thread.js"></script>
 </body>
 </html>

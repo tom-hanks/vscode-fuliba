@@ -191,10 +191,18 @@
 				applySize(latest.w, latest.h);
 			}
 
+			let done = false;
 			function onEnd() {
+				if (done) {
+					return;
+				}
+				done = true;
 				grip.removeEventListener('pointermove', onMove);
 				grip.removeEventListener('pointerup', onEnd);
 				grip.removeEventListener('pointercancel', onEnd);
+				window.removeEventListener('pointerup', onEnd, true);
+				window.removeEventListener('pointercancel', onEnd, true);
+				window.removeEventListener('blur', onEnd);
 				document.body.classList.remove('resizing');
 				if (latest) {
 					scheduleSave(latest.w, latest.h);
@@ -204,6 +212,17 @@
 			grip.addEventListener('pointermove', onMove);
 			grip.addEventListener('pointerup', onEnd);
 			grip.addEventListener('pointercancel', onEnd);
+			/*
+			 * 兜底收尾。`resizing` 期间 CSS 会把播放器的指针事件全部关掉
+			 * （拖动时鼠标划过 video/iframe，事件会被跨域文档吃掉，拖动会断），
+			 * 而摘掉这个 class 原本只挂在 grip 自己的 pointerup 上 —— 一旦那次抬起
+			 * 没落在 grip 上（指针滑出面板后在别处松开、被系统抢走、窗口失焦），
+			 * class 就永久留在 body 上：**之后整页播放器都点不动，连播放键都按不了**，
+			 * 只能刷新页面。所以 window 上也挂一份，并加失焦兜底。
+			 */
+			window.addEventListener('pointerup', onEnd, true);
+			window.addEventListener('pointercancel', onEnd, true);
+			window.addEventListener('blur', onEnd);
 		});
 	});
 
@@ -216,14 +235,24 @@
 	 * 页面这里只负责发起请求、换源，并把那条说明改成结果。
 	 */
 
-	function figureBySrc(src) {
+	/**
+	 * 同一个视频可能被贴在多个楼层，所以这里是**一批**而不是一个。
+	 * 只修第一个的话，用户如果正在看后面那层，就会以为「修了没用」。
+	 */
+	function figuresBySrc(src) {
 		const figures = document.querySelectorAll('figure.media-embed[data-media-src]');
+		const out = [];
 		for (let i = 0; i < figures.length; i++) {
 			if (figures[i].dataset.mediaSrc === src) {
-				return figures[i];
+				out.push(figures[i]);
 			}
 		}
-		return null;
+		return out;
+	}
+
+	function figureBySrc(src) {
+		const all = figuresBySrc(src);
+		return all.length ? all[0] : null;
 	}
 
 	/** 把按钮切到「转码中」，并支持重复调用（缓存命中时不会再走这里） */
@@ -282,31 +311,169 @@
 		vscode.postMessage({ command: 'fixAudio', url: src, quiet: !!quiet });
 	}
 
+	/** 等元素把新源读进来（loadedmetadata），或者报错 / 超时 */
+	function waitForSource(video, timeoutMs) {
+		return new Promise(function (resolve) {
+			let settled = false;
+			function finish(state) {
+				if (settled) {
+					return;
+				}
+				settled = true;
+				video.removeEventListener('loadedmetadata', onReady);
+				video.removeEventListener('error', onError);
+				clearTimeout(timer);
+				resolve(state);
+			}
+			function onReady() {
+				finish('ok');
+			}
+			function onError() {
+				finish('error');
+			}
+			const timer = setTimeout(function () {
+				finish('timeout');
+			}, timeoutMs);
+			video.addEventListener('loadedmetadata', onReady);
+			video.addEventListener('error', onError);
+		});
+	}
+
+	function loadSource(video, src, timeoutMs) {
+		video.removeAttribute('src');
+		video.src = src;
+		video.load();
+		return waitForSource(video, timeoutMs);
+	}
+
+	/**
+	 * 逐个投递方式试过去，返回第一个真能播成的。
+	 *
+	 * 地址现在是扩展自己起的本地 HTTP 服务（`http://127.0.0.1:<port>/<token>/…`），
+	 * 不再走 VS Code 的 webview 资源代理 —— 那条路在这个面板里会被拒：
+	 * `resource` 与 `resource-plus` 都是 `error code=4`，`blob` 那条 `fetch HTTP 401`。
+	 * 同一个文件在调试面板里却能播，机制在扩展侧既看不到也改不了，索性整个绕开。
+	 *
+	 * 留一条 blob 兜底：万一本机 HTTP 被拦（防火墙、安全策略），
+	 * fetch 下来直接喂元素还能救回来。
+	 */
+
+	// 第一次探出哪种投递能用之后，后面的视频直接用那一种，不再逐个试一遍
+	let preferredDelivery = null;
+
+	async function tryCandidate(video, item) {
+		if (item.name !== 'blob') {
+			return await loadSource(video, item.src, 2500);
+		}
+		const res = await fetch(item.next, { cache: 'no-store' });
+		if (!res.ok) {
+			return { state: 'fetch-http-' + res.status, detail: 'fetch HTTP ' + res.status };
+		}
+		const buf = await res.arrayBuffer();
+		const objectUrl = URL.createObjectURL(new Blob([buf], { type: 'video/mp4' }));
+		const state = await loadSource(video, objectUrl, 4000);
+		return { state: state, detail: buf.byteLength + ' 字节 / ' + state };
+	}
+
+	async function deliverSource(video, nextSrc) {
+		const attempts = [];
+		function record(name, ok, detail) {
+			attempts.push({ name: name, ok: ok, detail: detail || '' });
+		}
+
+		const all = [{ name: 'http', src: nextSrc }, { name: 'blob', next: nextSrc }];
+		// 已知可行的排到最前；其余保持原顺序
+		const order = preferredDelivery
+			? all
+					.filter(function (item) {
+						return item.name === preferredDelivery;
+					})
+					.concat(
+						all.filter(function (item) {
+							return item.name !== preferredDelivery;
+						})
+					)
+			: all;
+
+		for (let i = 0; i < order.length; i++) {
+			const item = order[i];
+			if (item.name !== 'blob' && (!item.src || (i > 0 && item.src === order[i - 1].src))) {
+				continue;
+			}
+			let outcome;
+			try {
+				outcome = await tryCandidate(video, item);
+			} catch (err) {
+				record(item.name, false, (err && err.name) + ': ' + (err && err.message));
+				continue;
+			}
+			const state = typeof outcome === 'string' ? outcome : outcome.state;
+			const detail = (typeof outcome === 'string' ? state : outcome.detail) || state;
+			record(item.name, state === 'ok', detail + (video.error ? ' code=' + video.error.code : ''));
+			if (state === 'ok') {
+				preferredDelivery = item.name;
+				return { winner: item.name, attempts: attempts };
+			}
+		}
+
+		return { winner: null, attempts: attempts };
+	}
+
 	/**
 	 * 换源。要接住播放位置：视频元素一旦改 src 就会回到 0，
 	 * 用户看到一半的视频被拉回开头，比没声音更烦。
 	 */
-	function applyAudioFix(url, nextSrc) {
-		const figure = figureBySrc(url);
-		if (!figure) {
+	async function applyAudioFix(url, nextSrc) {
+		const figures = figuresBySrc(url);
+		if (!figures.length) {
+			diagPush('fix-arrived-but-no-figure', { url: url, nextSrc: nextSrc });
+			reportDiag('fix-no-figure');
 			return;
 		}
-		const video = figure.querySelector('video');
-		if (video) {
+
+		for (let i = 0; i < figures.length; i++) {
+			const figure = figures[i];
+			const video = figure.querySelector('video');
+			if (!video) {
+				markDone(figure);
+				continue;
+			}
+
 			const at = video.currentTime;
 			const wasPlaying = !video.paused && !video.ended;
-			video.src = nextSrc;
-			video.load();
+			const original = figure.dataset.mediaSrc || url;
+
+			/*
+			 * 音轨换成 MP3 之后必须显式解除静音。
+			 *
+			 * 论坛模板里 `<video muted>` 很常见（绕自动播放拦截的写法），而 `muted`
+			 * 是属性级的：它写进 defaultMuted，光换 src 不会让它失效。表现就是
+			 * 「画面正常、换了音轨还是没声音」，而且完全看不出哪一步错了。
+			 * 音量 0 同理 —— 只要用户想听声音，这里就该是可听的默认值。
+			 */
+			video.muted = false;
+			video.defaultMuted = false;
+			video.removeAttribute('muted');
+			if (!video.volume) {
+				video.volume = 1;
+			}
+
+			const outcome = await deliverSource(video, nextSrc);
+
+			if (!outcome.winner) {
+				// 三种都没成：把原始地址放回去，至少画面还在，并把原因写在说明里
+				video.src = original;
+				video.load();
+				markFixFailed(figure, outcome.attempts);
+				continue;
+			}
+
 			if (at > 0.1) {
-				const restore = function () {
-					video.removeEventListener('loadedmetadata', restore);
-					try {
-						video.currentTime = Math.min(at, video.duration || at);
-					} catch (e) {
-						/* duration 没就绪就算了，从 0 开始不影响听声音 */
-					}
-				};
-				video.addEventListener('loadedmetadata', restore);
+				try {
+					video.currentTime = Math.min(at, video.duration || at);
+				} catch (e) {
+					/* duration 没就绪就算了，从 0 开始不影响听声音 */
+				}
 			}
 			if (wasPlaying) {
 				const played = video.play();
@@ -314,8 +481,37 @@
 					played.catch(function () {});
 				}
 			}
+			markDone(figure);
 		}
-		markDone(figure);
+
+		reportDiag('after-fix');
+		// 等新音源起来再探一次，这样同一支视频能拿到「换源前 / 换源后」两组字节数
+		setTimeout(function () {
+			void probeDecode();
+		}, 1500);
+	}
+
+	/** 三种投递都没成：保留出口，并把每种报的错摆出来 */
+	function markFixFailed(figure, attempts) {
+		const note = figure.querySelector('.media-note');
+		if (!note) {
+			return;
+		}
+		const original = note.querySelector('a[target="_blank"]');
+		const href = original ? original.getAttribute('href') : '';
+		const detail = attempts
+			.map(function (item) {
+				return item.name + '=' + (item.ok ? 'ok' : item.detail);
+			})
+			.join(' / ');
+		note.textContent = '音轨已备好，但这个地址编辑器读不出来（' + detail + '）。';
+		if (href) {
+			const link = document.createElement('a');
+			link.href = href;
+			link.target = '_blank';
+			link.textContent = '看原视频';
+			note.appendChild(link);
+		}
 	}
 
 	function showAudioFixError(url, message, needsFfmpeg) {
@@ -369,6 +565,67 @@
 		});
 	}
 
+	/* ---------- 支持楼主 ---------- */
+
+	/*
+	 * 论坛的「支持楼主」（第三方插件 she_btps，底层是 Discuz 原生评分）。
+	 *
+	 * 页面只负责发消息、显示结果 —— 提交必须由扩展侧带 Cookie 发：
+	 * webview 里没有登录态，CSP 也不允许直接请求论坛。
+	 * 要提交的字段（formhash / 评分项 / 理由）由模板注入到 window.__fulibaSupport，
+	 * 点一次就原样回传一次，页面自己不拼也不改。
+	 */
+	const supportBox = document.getElementById('thread-support');
+	const supportButton = document.getElementById('support-btn');
+	const supportHint = document.getElementById('support-hint');
+	const supportCountEl = document.getElementById('support-count');
+
+	function setSupportCount(next) {
+		if (typeof next !== 'number' || isNaN(next)) {
+			return;
+		}
+		if (supportCountEl) {
+			supportCountEl.textContent = next + ' 人支持';
+		}
+		const meter = supportBox && supportBox.querySelector('.support-meter');
+		if (meter) {
+			meter.style.setProperty('--count', String(next));
+		}
+	}
+
+	/** state：done 表示成功/已支持，retry 表示可以再点一次 */
+	function settleSupport(state, text) {
+		if (!supportBox) {
+			return;
+		}
+		supportBox.classList.remove('is-busy');
+		if (supportButton) {
+			supportButton.disabled = state !== 'retry';
+		}
+		if (supportHint) {
+			supportHint.textContent = text || '';
+			supportHint.classList.toggle('is-error', state === 'retry');
+		}
+	}
+
+	if (supportButton) {
+		supportButton.addEventListener('click', function () {
+			if (supportButton.disabled) {
+				return;
+			}
+			supportButton.disabled = true;
+			supportBox.classList.add('is-busy');
+			if (supportHint) {
+				supportHint.textContent = '正在提交…';
+				supportHint.classList.remove('is-error');
+			}
+			vscode.postMessage({
+				command: 'supportThread',
+				support: window.__fulibaSupport || null,
+			});
+		});
+	}
+
 	// 别的帖子面板拖动播放器 / 修好音轨后，扩展会把消息广播过来
 	window.addEventListener('message', function (event) {
 		const msg = event.data;
@@ -377,6 +634,23 @@
 		}
 		if (msg.command === 'playerSize') {
 			applySize(Number(msg.width) || 0, Number(msg.height) || 0);
+			return;
+		}
+		if (msg.command === 'threadSupportResult') {
+			if (!supportBox) {
+				return;
+			}
+			if (msg.ok) {
+				setSupportCount(msg.count);
+				supportBox.classList.add('is-done');
+				settleSupport('done', msg.message || '支持成功');
+			} else if (msg.alreadyDone) {
+				// 「已经支持过」不是错误而是一种状态，照已支持显示即可
+				supportBox.classList.add('is-done');
+				settleSupport('done', msg.message);
+			} else {
+				settleSupport('retry', msg.message);
+			}
 			return;
 		}
 		if (msg.command === 'audioFixState') {
@@ -389,7 +663,7 @@
 			return;
 		}
 		if (msg.command === 'audioFixed') {
-			applyAudioFix(msg.url, msg.src);
+			void applyAudioFix(msg.url, msg.src);
 			return;
 		}
 		if (msg.command === 'audioFixFailed') {
@@ -398,7 +672,7 @@
 		}
 		if (msg.command === 'audioFixes' && msg.map) {
 			Object.keys(msg.map).forEach(function (url) {
-				applyAudioFix(url, msg.map[url]);
+				void applyAudioFix(url, msg.map[url]);
 			});
 			if (msg.auto !== false) {
 				autoFixRest(msg.map);

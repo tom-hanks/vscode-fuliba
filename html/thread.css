@@ -508,6 +508,120 @@ body.resizing .media-stage video {
 	font-size: 0.94em;
 }
 
+/* ---------- 支持楼主 ---------- */
+
+/*
+ * 柱子高度按支持数换算：实测论坛原版 8 个支持是 31px，约 4px/个，
+ * 上限 44px（容器 50px 留一点余量）。数字全在 CSS 里算，JS 只改 --count。
+ */
+.support {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	margin: 18px 0 4px;
+	padding-top: 16px;
+	border-top: 1px dashed var(--border);
+}
+
+.support-row {
+	display: flex;
+	align-items: center;
+	gap: 18px;
+}
+
+.support-meter {
+	position: relative;
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+	width: 22px;
+	height: 50px;
+	padding: 2px;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	background: var(--card);
+}
+
+.support-fill {
+	width: 100%;
+	min-height: 3px;
+	border-radius: 2px 2px 0 0;
+	background: #cc3300;
+	height: min(44px, calc(var(--count, 0) * 4px));
+	transition: height 0.25s ease;
+}
+
+.support-btn {
+	display: block;
+	padding: 0;
+	border: none;
+	background: none;
+	line-height: 0;
+	cursor: pointer;
+	border-radius: 50%;
+	transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.support-btn img {
+	display: block;
+	width: 60px;
+	height: 60px;
+	border-radius: 50%;
+}
+
+.support-btn:hover:not(:disabled) {
+	transform: scale(1.06);
+	box-shadow: 0 0 0 3px rgba(204, 51, 0, 0.25);
+}
+
+.support-btn:active:not(:disabled) {
+	transform: scale(0.96);
+}
+
+.support-btn:disabled {
+	cursor: default;
+	filter: grayscale(0.7);
+	opacity: 0.7;
+}
+
+.support-text {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	text-align: left;
+}
+
+.support-label {
+	font-size: 0.95em;
+	font-weight: 600;
+}
+
+.support-count {
+	font-size: 0.85em;
+	color: var(--muted);
+}
+
+.support-hint {
+	margin: 0;
+	min-height: 1.2em;
+	font-size: 0.85em;
+	color: var(--muted);
+}
+
+.support-hint.is-error {
+	color: var(--vscode-errorForeground, #f14c4c);
+}
+
+/* 提交中 / 已支持：按钮压暗但保留图形，避免整块突然塌掉 */
+.support.is-busy .support-btn {
+	opacity: 0.55;
+}
+
+.support.is-done .support-count {
+	color: #cc3300;
+}
+
 /* ---------- 底部翻页 ---------- */
 
 .pager {

@@ -20,6 +20,16 @@ export function getContextPath(webview: vscode.Webview): string {
 		.toString();
 }
 
+/**
+ * 扩展内任意文件的 webview 地址。
+ * 记得把所在目录放进面板的 localResourceRoots，否则资源服务会挡掉。
+ */
+export function getResourceUri(webview: vscode.Webview, ...segments: string[]): string {
+	return webview
+		.asWebviewUri(vscode.Uri.file(path.join(Global.context!.extensionPath, ...segments)))
+		.toString();
+}
+
 /** 用 art-template 渲染 html 目录下的模板 */
 export function renderPage(
 	webview: vscode.Webview,

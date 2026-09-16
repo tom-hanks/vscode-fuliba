@@ -1,11 +1,13 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { renderPage } from '../render';
+import { renderPage, getResourceUri } from '../render';
 import { fetchThreadDetail, extractTid } from '../discuz';
+import { fetchThreadSupport, submitSupport } from '../threadSupport';
 import { LoginRequiredError, AccessDeniedError } from '../error';
-import { ThreadDetail } from '../models';
+import { ThreadDetail, ThreadSupport } from '../models';
 import Global from '../global';
 import { ensureAudioFixed, cachedFixPath, findFfmpeg, FfmpegMissingError } from '../audioFix';
+import { ensureMediaServer, mediaUrlFor } from '../mediaServer';
 
 /** 已打开的帖子面板，key 为 tid */
 const panels = new Map<number, vscode.WebviewPanel>();
@@ -37,7 +39,11 @@ function shortTitle(title: string): string {
 function createPanel(tid: number, label: string): vscode.WebviewPanel {
 	// 转好的音轨落在 globalStorage 里，也得放进 resourceRoots，
 	// 否则 asWebviewUri 出来的地址会被 webview 的资源服务挡掉
-	const roots = [vscode.Uri.file(path.join(Global.context!.extensionPath, 'html'))];
+	const roots = [
+		vscode.Uri.file(path.join(Global.context!.extensionPath, 'html')),
+		// resources 里放的是「支持楼主」那类跟着扩展走的图片
+		vscode.Uri.file(path.join(Global.context!.extensionPath, 'resources')),
+	];
 	const storage = Global.context?.globalStorageUri;
 	if (storage) {
 		roots.push(storage);
@@ -74,7 +80,57 @@ function renderDetail(panel: vscode.WebviewPanel, detail: ThreadDetail): void {
 		siteUrl: Global.getSiteUrl(),
 		showAvatar: Global.getShowAvatar(),
 		player: Global.getPlayerSize(),
+		// 「支持楼主」的按钮图跟着扩展走，不依赖论坛那边能不能访问到
+		supportIcon: getResourceUri(panel.webview, 'resources', 'support-a.gif'),
+		// 提交要用到的字段（formhash / 评分项 / 理由）整份交给页面，
+		// 点击时页面原样回传，省得扩展这边再维护一份和面板绑定的状态
+		supportJson: JSON.stringify(detail.support ?? null),
 	});
+}
+
+/**
+ * 提交一次「支持楼主」。
+ *
+ * 服务端拿到的参数全部来自帖子页（页面把 support 原样回传），扩展这边不做判断 ——
+ * 「不能给自己评分」「已经评过」这些都由论坛说了算，我们照搬它的文案。
+ */
+async function submitThreadSupport(
+	panel: vscode.WebviewPanel,
+	tid: number,
+	support: ThreadSupport | undefined
+): Promise<void> {
+	if (!support || !support.formhash || !support.pid) {
+		void panel.webview.postMessage({
+			command: 'threadSupportResult',
+			ok: false,
+			message: '支持信息已失效，刷新后重试',
+		});
+		return;
+	}
+
+	try {
+		const outcome = await submitSupport(tid, support);
+		let count: number | undefined;
+		if (outcome.ok) {
+			// 成功之后重新读一次模块，把服务端算好的新计数拿回来，
+			// 免得本地自己 +1 和真实值越差越远
+			const fresh = await fetchThreadSupport(tid, support.fid, support.pid);
+			count = fresh?.count;
+		}
+		void panel.webview.postMessage({
+			command: 'threadSupportResult',
+			ok: outcome.ok,
+			message: outcome.message,
+			alreadyDone: outcome.alreadyDone === true,
+			count,
+		});
+	} catch (err) {
+		void panel.webview.postMessage({
+			command: 'threadSupportResult',
+			ok: false,
+			message: err instanceof Error ? err.message : '支持失败，请稍后再试',
+		});
+	}
 }
 
 async function loadThread(panel: vscode.WebviewPanel, tid: number, page: number): Promise<void> {
@@ -118,15 +174,31 @@ async function savePlayerSize(origin: vscode.WebviewPanel, width: number, height
  *
  * 空结果也要回：页面要等这条消息才知道「除这些之外，其余可以自动去修」，
  * 不回的话自动修复就得靠猜，会和缓存命中撞车、白转一遍。
+ *
+ * 地址走本地 HTTP 服务，不用 asWebviewUri —— 后者在这个面板里会被资源代理
+ * 拒掉（`fetch HTTP 401` / `Format error`，详见 mediaServer.ts）。
  */
-function replyAudioFixes(panel: vscode.WebviewPanel, urls: string[]): void {
-	const map: Record<string, string> = {};
+async function replyAudioFixes(panel: vscode.WebviewPanel, urls: string[]): Promise<void> {
+	const hits: Array<{ url: string; file: string }> = [];
 	for (const url of urls) {
 		const file = cachedFixPath(url);
 		if (file) {
-			map[url] = panel.webview.asWebviewUri(vscode.Uri.file(file)).toString();
+			hits.push({ url, file });
 		}
 	}
+
+	const map: Record<string, string> = {};
+	// 没有产物要发就不启服务，别为一个空帖子白开一个端口
+	if (hits.length) {
+		await ensureMediaServer();
+		for (const hit of hits) {
+			const src = mediaUrlFor(hit.file);
+			if (src) {
+				map[hit.url] = src;
+			}
+		}
+	}
+
 	void panel.webview.postMessage({
 		command: 'audioFixes',
 		map,
@@ -214,7 +286,12 @@ async function fixAudio(panel: vscode.WebviewPanel, url: string | undefined, qui
 
 	try {
 		const file = await job;
-		const src = panel.webview.asWebviewUri(vscode.Uri.file(file)).toString();
+		/*
+		 * 本地 HTTP 服务把产物送进页面。万一它起不来（端口被占之类），
+		 * 退回资源地址 —— 那条在这个面板里实测读不出来，但总比不给地址好。
+		 */
+		await ensureMediaServer();
+		const src = mediaUrlFor(file) ?? panel.webview.asWebviewUri(vscode.Uri.file(file)).toString();
 		void panel.webview.postMessage({ command: 'audioFixed', url, src });
 	} catch (err) {
 		const needsFfmpeg = err instanceof FfmpegMissingError;
@@ -266,6 +343,7 @@ export default async function openThread(tid: number, label = `帖子 ${tid}`): 
 			height?: number;
 			urls?: string[];
 			quiet?: boolean;
+			support?: ThreadSupport;
 		}) => {
 			switch (message.command) {
 				case 'pageTurning':
@@ -281,7 +359,10 @@ export default async function openThread(tid: number, label = `帖子 ${tid}`): 
 					void fixAudio(panel, message.url, message.quiet === true);
 					break;
 				case 'audioFixes':
-					replyAudioFixes(panel, Array.isArray(message.urls) ? message.urls : []);
+					void replyAudioFixes(panel, Array.isArray(message.urls) ? message.urls : []);
+					break;
+				case 'supportThread':
+					void submitThreadSupport(panel, tid, message.support);
 					break;
 				case 'login':
 					void vscode.commands.executeCommand('fuliba.setCookie');

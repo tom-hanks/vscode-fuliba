@@ -8,6 +8,7 @@ import setCookie, { clearCookie } from './commands/cookie';
 import { searchThreads, extractTid, getForumGroupsCached } from './discuz';
 import { LoginRequiredError } from './error';
 import { SORT_DETAILS, SORT_LABELS, ThreadSort } from './models';
+import { disposeMediaServer } from './mediaServer';
 
 interface SearchPick extends vscode.QuickPickItem {
 	tid: number;
@@ -347,5 +348,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export function deactivate(): void {
 	disposeAllPanels();
+	disposeMediaServer();
 	Global.context = undefined;
 }

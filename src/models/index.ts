@@ -100,6 +100,43 @@ export interface Post {
 	isOriginalPost: boolean;
 }
 
+/**
+ * 论坛的「支持楼主」。
+ *
+ * 这不是插件自己造的功能，而是论坛第三方插件 `she_btps` 提供的，底层走的是
+ * Discuz 原生评分接口（`forum.php?mod=misc&action=rate`）。所以这里的每个字段
+ * 都对应服务端真实校验的一个参数，不能自己编：
+ *  - formhash 必须与当前会话一致，否则 submitcheck 直接拒
+ *  - scoreId/score 决定给哪个评分项加几分，服务端会再校验一次范围
+ *  - pid 必须真的属于本主题
+ */
+export interface ThreadSupport {
+	/** 楼主楼的 pid */
+	pid: number;
+	/** 所在版块 */
+	fid: number;
+	/** 累计支持数，展示用 */
+	count: number;
+	/** 提交时必需的表单串 */
+	formhash: string;
+	/** 评分项序号，字段名是 score{scoreId} */
+	scoreId: string;
+	/** 每次点击提交的分值 */
+	score: string;
+	/** 固定理由，论坛在按钮里写死的 */
+	reason: string;
+	/** 回调句柄，服务端用它拼 succeedhandle_xxx / errorhandle_xxx */
+	handlekey: string;
+	/**
+	 * 表单 id 的后缀（`rateform_a` → `a`）。
+	 * 提交成功后论坛会再请求一次插件接口并把 `txts` 传成这个值，用来记「已支持」，
+	 * 少了它服务端收不到回执。
+	 */
+	formSuffix: string;
+	/** 服务端是否给出了提交按钮（没权限时不会给） */
+	allowed: boolean;
+}
+
 /** 帖子详情页 */
 export interface ThreadDetail {
 	tid: number;
@@ -109,6 +146,8 @@ export interface ThreadDetail {
 	posts: Post[];
 	pageNow: number;
 	pageTotal: number;
+	/** 该帖是否开启了「支持楼主」；没开或取不到就是 undefined */
+	support?: ThreadSupport;
 }
 
 /** 帖子详情里播放器的显示尺寸（像素）。全局一份，拖动任意一个播放器就一起变 */
