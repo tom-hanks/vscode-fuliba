@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="UTF-8">
+	<!--
+		门户文章面板的 CSP。
+		比帖子面板少两样：没有 media-src / connect-src 到 127.0.0.1 的需求 ——
+		门户正文里没有需要本地转码的视频（图片走搜狗 CDN，BGM 是 iframe）。
+		少一条白名单就少一条路，能不开的口子不开。
+	-->
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; frame-src {{embedHosts}}; style-src {{cspSource}} 'unsafe-inline'; script-src 'nonce-{{nonce}}' {{cspSource}}; font-src {{cspSource}};">
+	<link rel="stylesheet" href="{{contextPath}}/article.css">
+	<title>{{article.title}}</title>
+</head>
+<body>
+	<header class="toolbar">
+		<div class="toolbar-main">
+			<h1 class="title">{{article.title}}</h1>
+			<div class="meta">
+				{{if article.date}}<span class="chip">{{article.date}}</span>{{/if}}
+				{{if article.category}}<span class="chip">{{article.category}}</span>{{/if}}
+				{{if article.views}}<span class="chip">阅读 {{article.views}}</span>{{/if}}
+				{{if article.comments}}<span class="chip">评论 {{article.comments}}</span>{{/if}}
+				{{if article.likes}}<span class="chip">赞 {{article.likes}}</span>{{/if}}
+				{{if article.pageTotal > 1}}<span class="chip">第 {{article.pageNow}} / {{article.pageTotal}} 页</span>{{/if}}
+			</div>
+		</div>
+		<div class="toolbar-actions">
+			<button data-command="refresh" title="重新拉取这一页">刷新</button>
+			<button data-command="copyLink" title="复制文章链接">复制链接</button>
+			<button data-command="openInBrowser" title="在浏览器里打开这篇文章">浏览器打开</button>
+		</div>
+	</header>
+
+	{{if error}}
+	<div class="error-box">
+		<div class="error-title">这篇文章没打开</div>
+		<div class="error-msg">{{error}}</div>
+		<button data-command="refresh">重试</button>
+	</div>
+	{{else}}
+	<article class="article">
+		<div class="article-body">{{@article.content}}</div>
+		{{if article.tags.length}}
+		<!-- 标签只做展示：门户那边是 /tag/xxx 列表页，点进去是另一个栏目，
+		     做成链接反而会把人带走，这里就当分类提示看 -->
+		<div class="article-tags">
+			<span class="tags-label">标签</span>
+			{{each article.tags t}}<span class="tag">{{t}}</span>{{/each}}
+		</div>
+		{{/if}}
+	</article>
+
+	{{if article.pageTotal > 1}}
+	<footer class="pager">
+		<button class="pg-art" data-page="1" {{if article.pageNow <= 1}}disabled{{/if}}>第 1 页</button>
+		<button class="pg-art" data-page="{{article.pageNow - 1}}" {{if article.pageNow <= 1}}disabled{{/if}}>上一页</button>
+		<span class="pager-info">{{article.pageNow}} / {{article.pageTotal}}</span>
+		<button class="pg-art" data-page="{{article.pageNow + 1}}" {{if article.pageNow >= article.pageTotal}}disabled{{/if}}>下一页</button>
+		<button class="pg-art" data-page="{{article.pageTotal}}" {{if article.pageNow >= article.pageTotal}}disabled{{/if}}>末页</button>
+	</footer>
+	{{/if}}
+
+	<!--
+		评论区。
+		门户文章的评论游客就能看，而且没有分页（实测 31 条也是一次全渲染出来），
+		所以直接铺开即可。发文要登录，面板里不做发表入口，只标明去哪儿发。
+	-->
+	{{if article.commentList.length}}
+	<section class="comments">
+		<div class="comments-head">
+			<h2 class="comments-title">评论 <b>{{article.comments}}</b></h2>
+			{{if article.commentList.length < article.comments}}<span class="comments-note">本页渲染了 {{article.commentList.length}} 条</span>{{/if}}
+			<span class="comments-hint">发评论要登录，可在浏览器里打开</span>
+		</div>
+		<ol class="comment-list">
+			{{each article.commentList c}}
+			<li class="comment" id="c{{c.cid}}">
+				<div class="comment-head">
+					{{if c.avatar}}<img class="comment-avatar" src="{{c.avatar}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{/if}}
+					<span class="comment-author">{{c.author}}</span>
+					{{if c.floor}}<span class="comment-floor">{{c.floor}}</span>{{/if}}
+					{{if c.time}}<span class="comment-time" title="{{c.time}}">{{c.time}}</span>{{/if}}
+					{{if c.likes}}<span class="comment-like" title="点赞数">{{c.likes}} 赞</span>{{/if}}
+				</div>
+				<div class="comment-body">{{@c.content}}</div>
+
+				{{if c.replies.length}}
+				<ul class="comment-replies">
+					{{each c.replies r}}
+					<li class="comment is-reply" id="c{{r.cid}}">
+						<div class="comment-head">
+							{{if r.avatar}}<img class="comment-avatar" src="{{r.avatar}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{/if}}
+							<span class="comment-author">{{r.author}}</span>
+							{{if r.replyTo}}<span class="comment-replyto">回复 {{r.replyTo}}</span>{{/if}}
+							{{if r.time}}<span class="comment-time" title="{{r.time}}">{{r.time}}</span>{{/if}}
+							{{if r.likes}}<span class="comment-like" title="点赞数">{{r.likes}} 赞</span>{{/if}}
+						</div>
+						<div class="comment-body">{{@r.content}}</div>
+					</li>
+					{{/each}}
+				</ul>
+				{{/if}}
+			</li>
+			{{/each}}
+		</ol>
+	</section>
+	{{/if}}
+	{{/if}}
+
+	<script nonce="{{nonce}}" src="{{contextPath}}/article.js"></script>
+</body>
+</html>

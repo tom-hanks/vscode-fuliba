@@ -1,0 +1,486 @@
+/* 福利吧门户文章面板样式。颜色全部走 VS Code 主题变量，浅色/深色自动适配。 */
+
+:root {
+	--border: var(--vscode-panel-border, rgba(128, 128, 128, 0.3));
+	--muted: var(--vscode-descriptionForeground);
+	--link: var(--vscode-textLink-foreground);
+	--card: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.06));
+	--accent: var(--vscode-textLink-foreground);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	font-family: var(--vscode-font-family);
+	font-size: var(--vscode-font-size);
+	line-height: 1.7;
+	color: var(--vscode-editor-foreground);
+	background: var(--vscode-editor-background);
+	word-wrap: break-word;
+}
+
+/* ---------- 顶部工具栏 ---------- */
+
+.toolbar {
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	display: flex;
+	align-items: flex-start;
+	gap: 16px;
+	padding: 14px 24px;
+	background: var(--vscode-editor-background);
+	border-bottom: 1px solid var(--border);
+}
+
+.toolbar-main {
+	flex: 1;
+	min-width: 0;
+}
+
+.title {
+	margin: 0 0 6px;
+	font-size: 1.25em;
+	font-weight: 600;
+	line-height: 1.45;
+}
+
+.meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+}
+
+.chip {
+	padding: 1px 8px;
+	font-size: 0.82em;
+	color: var(--muted);
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	white-space: nowrap;
+}
+
+.toolbar-actions {
+	display: flex;
+	flex: 0 0 auto;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: flex-end;
+}
+
+.toolbar-actions button,
+.error-box button {
+	padding: 4px 12px;
+	font-family: inherit;
+	font-size: 0.9em;
+	color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground));
+	background: var(--vscode-button-secondaryBackground, var(--card));
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.toolbar-actions button:hover,
+.error-box button:hover {
+	background: var(--vscode-button-secondaryHoverBackground, var(--card));
+	border-color: var(--accent);
+}
+
+/* ---------- 文章 ---------- */
+
+/*
+ * 正文左边缘和工具栏对齐（都从 24px 起）。
+ * 用「居中 + max-width」的杂志式排版试过，和左对齐的工具栏并排时正文会整体右移一段，
+ * 头部和内容各站一边，读起来像两个页面拼起来的。
+ */
+.article {
+	max-width: 940px;
+	margin: 0;
+	padding: 18px 24px 8px;
+}
+
+.article-body {
+	line-height: 1.85;
+}
+
+.article-body p {
+	margin: 0 0 12px;
+}
+
+.article-body h4 {
+	margin: 12px 0 6px;
+	font-size: 1em;
+	font-weight: 600;
+}
+
+.article-body blockquote {
+	margin: 12px 0;
+	padding: 4px 0 4px 14px;
+	border-left: 3px solid var(--border);
+}
+
+.article-body blockquote h4 {
+	margin: 6px 0;
+	font-weight: 400;
+}
+
+.article-body a {
+	color: var(--link);
+	text-decoration: none;
+}
+
+.article-body a:hover {
+	text-decoration: underline;
+}
+
+.article-body img {
+	max-width: 100%;
+	height: auto;
+	border-radius: 4px;
+}
+
+/* 展开后的图再点一次全屏，和帖子面板同一套手势 */
+.article-body img.zoomed {
+	position: fixed;
+	inset: 0;
+	z-index: 100;
+	width: 100%;
+	height: 100%;
+	max-width: none;
+	object-fit: contain;
+	background: rgba(0, 0, 0, 0.9);
+	border-radius: 0;
+	cursor: zoom-out;
+}
+
+/*
+ * 内嵌播放器（门户文章开头的网易云 BGM）。
+ * 外框用 inline-flex 贴着播放器本身的宽度（那个播放器固定 330×86）——
+ * 用 block 的话外框会拉满一行，右边空一大片，看着像个没加载出来的框。
+ */
+.media-embed {
+	margin: 12px 0;
+}
+
+.media-stage {
+	display: inline-flex;
+	justify-content: center;
+	padding: 8px;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+}
+
+.media-stage iframe {
+	width: 330px;
+	max-width: 100%;
+	height: 86px;
+	border: 0;
+	border-radius: 4px;
+}
+
+.media-note {
+	margin-top: 4px;
+	font-size: 0.82em;
+	color: var(--muted);
+}
+
+.media-note a {
+	color: var(--link);
+}
+
+.article-tags {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin-top: 18px;
+	padding-top: 12px;
+	border-top: 1px solid var(--border);
+}
+
+.tags-label {
+	font-size: 0.82em;
+	color: var(--muted);
+}
+
+.tag {
+	padding: 1px 8px;
+	font-size: 0.82em;
+	color: var(--muted);
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+}
+
+/* ---------- 图片占位块（正文里那套，和帖子面板一致） ---------- */
+
+.img-slot {
+	display: inline-block;
+	padding: 8px 16px;
+	margin: 4px 0;
+	font-size: 0.88em;
+	color: var(--muted);
+	background: var(--card);
+	border: 1px dashed var(--border);
+	border-radius: 4px;
+	cursor: zoom-in;
+	user-select: none;
+}
+
+.img-slot:hover {
+	color: var(--link);
+	border-color: var(--link);
+}
+
+/*
+ * 悬停预览浮层。pointer-events 必须是 none：否则鼠标移到浮层上就算离开了占位块，
+ * 浮层消失、鼠标又落回占位块，浮层再出现 —— 来回闪。
+ */
+#img-preview {
+	position: fixed;
+	z-index: 150;
+	max-width: 480px;
+	max-height: 360px;
+	padding: 6px;
+	font-size: 0.86em;
+	color: var(--muted);
+	background: var(--vscode-editorWidget-background, #252526);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+	pointer-events: none;
+}
+
+#img-preview img {
+	display: block;
+	max-width: 468px;
+	max-height: 340px;
+	border-radius: 4px;
+}
+
+/* ---------- 评论区 ---------- */
+
+/*
+ * 宽度和 .article 对齐（都从 24px 起、都不居中），
+ * 否则正文和评论会左右错开，看着像两个页面。
+ */
+.comments {
+	max-width: 940px;
+	margin: 0;
+	padding: 4px 24px 28px;
+}
+
+.comments-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 10px;
+	padding-top: 14px;
+	border-top: 1px solid var(--border);
+}
+
+.comments-title {
+	margin: 0;
+	font-size: 1.05em;
+	font-weight: 600;
+}
+
+.comments-title b {
+	font-weight: 600;
+	color: var(--muted);
+}
+
+.comments-note {
+	font-size: 0.82em;
+	color: var(--muted);
+	opacity: 0.85;
+}
+
+/* 只读说明推到右边，和下面的评论内容分开 */
+.comments-hint {
+	margin-left: auto;
+	font-size: 0.82em;
+	color: var(--muted);
+	opacity: 0.85;
+}
+
+.comment-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.comment {
+	padding: 12px 0;
+	border-top: 1px solid var(--border);
+}
+
+.comment-list > .comment:first-child {
+	border-top: 0;
+}
+
+.comment-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+
+.comment-avatar {
+	width: 24px;
+	height: 24px;
+	flex: 0 0 auto;
+	border-radius: 50%;
+	background: rgba(128, 128, 128, 0.15);
+	object-fit: cover;
+}
+
+.comment-author {
+	font-size: 0.9em;
+	font-weight: 600;
+}
+
+.comment-floor {
+	font-size: 0.82em;
+	color: var(--muted);
+	opacity: 0.8;
+}
+
+/*
+ * 时间推到右边：评论头和正文一样宽，时间不归位的话
+ * 每条评论的时间都会跟在昵称后面长短不一，扫起来没有对齐的参考线。
+ */
+.comment-time {
+	margin-left: auto;
+	font-size: 0.82em;
+	color: var(--muted);
+	white-space: nowrap;
+}
+
+.comment-like {
+	font-size: 0.82em;
+	color: var(--muted);
+	white-space: nowrap;
+}
+
+.comment-body {
+	margin-top: 4px;
+	line-height: 1.7;
+}
+
+.comment-body p {
+	margin: 0 0 8px;
+}
+
+.comment-body p:last-child {
+	margin-bottom: 0;
+}
+
+/* 表情是小图，别被拉伸；用户贴的大图也不该撑破面板 */
+.comment-body img {
+	max-width: 100%;
+	height: auto;
+	vertical-align: middle;
+}
+
+.comment-body a {
+	color: var(--link);
+	text-decoration: none;
+}
+
+.comment-body a:hover {
+	text-decoration: underline;
+}
+
+/* 楼中楼：左边一条竖线 + 缩进，一眼看出是在回谁 */
+.comment-replies {
+	margin: 8px 0 0;
+	padding: 0 0 0 14px;
+	list-style: none;
+	border-left: 2px solid var(--border);
+}
+
+.comment-replies .comment {
+	padding: 8px 0;
+	border-top: 0;
+}
+
+.comment-replies .comment-avatar {
+	width: 20px;
+	height: 20px;
+}
+
+.comment-replies .comment-author {
+	font-weight: 400;
+}
+
+.comment-replyto {
+	font-size: 0.82em;
+	color: var(--link);
+	opacity: 0.9;
+}
+
+/* ---------- 翻页 ---------- */
+
+.pager {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 16px 24px 28px;
+}
+
+.pager button {
+	padding: 3px 12px;
+	font-family: inherit;
+	font-size: 0.9em;
+	color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground));
+	background: var(--vscode-button-secondaryBackground, var(--card));
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.pager button:hover:not(:disabled) {
+	border-color: var(--accent);
+}
+
+.pager button:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.pager-info {
+	font-size: 0.86em;
+	color: var(--muted);
+}
+
+/* ---------- 出错 ---------- */
+
+.error-box {
+	max-width: 640px;
+	/* 和工具栏、正文一样左对齐，别一个页面里两种对齐方式 */
+	margin: 28px 24px;
+	padding: 16px 18px;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+}
+
+.error-title {
+	margin-bottom: 6px;
+	font-weight: 600;
+}
+
+.error-msg {
+	margin-bottom: 12px;
+	font-size: 0.9em;
+	color: var(--muted);
+	white-space: pre-wrap;
+}

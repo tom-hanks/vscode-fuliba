@@ -22,6 +22,10 @@ export const NODE = {
 	group: 'fuliba.group',
 	forum: 'fuliba.forum',
 	thread: 'fuliba.thread',
+	/** 门户「最新福利」根节点。门户是另一个站，没有 fid，用它和版块节点区分开 */
+	portal: 'fuliba.portal',
+	/** 门户文章叶子节点。靠 aid 区分于帖子的 tid */
+	article: 'fuliba.article',
 	hint: 'fuliba.hint',
 	error: 'fuliba.error',
 } as const;
@@ -55,6 +59,12 @@ export class TreeNode extends TreeItem {
 	public fid: number | undefined;
 	/** 帖子 id，仅帖子节点有 */
 	public tid: number | undefined;
+	/**
+	 * 文章 id，仅门户文章节点有。
+	 * 注意它和 tid 是两套东西：门户文章（aid）和论坛帖子（tid）在各自站里独立编号，
+	 * 不能互相代入，所以「已读」「置顶」这些论坛语义的门户一概不用。
+	 */
+	public aid: number | undefined;
 	/** 是否置顶，仅帖子节点有 */
 	public isSticky: boolean = false;
 	/** 是否精华，仅帖子节点有 */

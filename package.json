@@ -2,7 +2,7 @@
   "name": "fuliba",
   "displayName": "福利吧",
   "description": "码农摸鱼神器：在 VS Code 侧边栏里刷福利吧。等编译、等依赖、等 AI 把代码写完的间隙，顺手翻两页，不用切浏览器。",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "publisher": "laryers",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -30,7 +30,8 @@
   "activationEvents": [
     "onView:fuliba-forums",
     "onCommand:fuliba.setCookie",
-    "onCommand:fuliba.openThread"
+    "onCommand:fuliba.openThread",
+    "onCommand:fuliba.openArticle"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -65,10 +66,22 @@
         "icon": "$(new-file)"
       },
       {
+        "command": "fuliba.openArticle",
+        "title": "打开指定文章",
+        "category": "福利吧",
+        "icon": "$(file-text)"
+      },
+      {
         "command": "fuliba.search",
         "title": "搜索",
         "category": "福利吧",
         "icon": "$(search)"
+      },
+      {
+        "command": "fuliba.latest",
+        "title": "最新福利",
+        "category": "福利吧",
+        "icon": "$(globe)"
       },
       {
         "command": "fuliba.chooseSort",
@@ -153,7 +166,7 @@
     "viewsWelcome": [
       {
         "view": "fuliba-forums",
-        "contents": "尚未导入 Cookie，无法访问福利吧。\n\n福利吧需要登录后才能浏览版块和帖子。\n\n[导入 Cookie](command:fuliba.setCookie)\n\n导入方法：浏览器登录 www.wnflb2023.com 后，按 F12 → Network → 刷新页面 → 点任意请求 → 复制 Request Headers 里的 Cookie 值，粘贴进来即可。"
+        "contents": "版块树没加载出来。\n\n论坛的版块和帖子需要登录后才能浏览。\n\n[导入 Cookie](command:fuliba.setCookie)\n\n导入方法：浏览器登录 www.wnflb2023.com 后，按 F12 → Network → 刷新页面 → 点任意请求 → 复制 Request Headers 里的 Cookie 值，粘贴进来即可。\n\n---\n\n侧边栏的「最新福利」读的是福利吧官网（门户），**游客就能看，不需要 Cookie**。"
       }
     ],
     "menus": {
@@ -184,6 +197,11 @@
           "group": "navigation@5"
         },
         {
+          "command": "fuliba.latest",
+          "when": "view == fuliba-forums",
+          "group": "navigation@6"
+        },
+        {
           "command": "fuliba.selectForums",
           "when": "view == fuliba-forums",
           "group": "1_forum@1"
@@ -202,35 +220,35 @@
       "view/item/context": [
         {
           "command": "fuliba.prevPage",
-          "when": "view == fuliba-forums && viewItem == fuliba.forum",
+          "when": "view == fuliba-forums && viewItem =~ /^fuliba\\.(forum|portal)$/",
           "group": "inline@0"
         },
         {
           "command": "fuliba.nextPage",
-          "when": "view == fuliba-forums && viewItem == fuliba.forum",
+          "when": "view == fuliba-forums && viewItem =~ /^fuliba\\.(forum|portal)$/",
           "group": "inline@1"
         },
         {
           "command": "fuliba.refreshNode",
-          "when": "view == fuliba-forums && viewItem =~ /^fuliba\\.(forum|group)$/",
+          "when": "view == fuliba-forums && viewItem =~ /^fuliba\\.(forum|group|portal)$/",
           "group": "inline@2"
         },
         {
           "command": "fuliba.jumpFirst",
-          "when": "view == fuliba-forums && viewItem == fuliba.forum",
+          "when": "view == fuliba-forums && viewItem =~ /^fuliba\\.(forum|portal)$/",
           "group": "inline@3"
         },
         {
           "command": "fuliba.copyLink",
-          "when": "view == fuliba-forums && viewItem == fuliba.thread"
+          "when": "view == fuliba-forums && viewItem =~ /^fuliba\\.(thread|article)$/"
         },
         {
           "command": "fuliba.copyTitleLink",
-          "when": "view == fuliba-forums && viewItem == fuliba.thread"
+          "when": "view == fuliba-forums && viewItem =~ /^fuliba\\.(thread|article)$/"
         },
         {
           "command": "fuliba.openInBrowser",
-          "when": "view == fuliba-forums && viewItem == fuliba.thread"
+          "when": "view == fuliba-forums && viewItem =~ /^fuliba\\.(thread|article)$/"
         },
         {
           "command": "fuliba.markRead",
@@ -245,6 +263,11 @@
           "type": "string",
           "default": "https://www.wnflb2023.com",
           "description": "论坛站点地址"
+        },
+        "fuliba.portalUrl": {
+          "type": "string",
+          "default": "https://fuliba2023.net",
+          "description": "门户站点地址（福利吧官网）。「最新福利」列表和文章都从这里读，游客可访问，不需要 Cookie"
         },
         "fuliba.threadSort": {
           "type": "string",

@@ -221,6 +221,26 @@ export async function getHtml(urlOrPath: string, params?: Record<string, unknown
 }
 
 /**
+ * 不带 Cookie 的 GET。
+ *
+ * 门户站（福利吧官网）游客就能读全：首页、「最新福利」列表、文章正文都是 200，
+ * 正文里没有回复可见 / 积分购买那类门槛。所以走门户这条路不需要 Cookie ——
+ * 而且也不该带：门户和论坛是两个域，论坛那份 Cookie 拿过去只会是一串无效字段。
+ *
+ * 其余行为（限速、重试、Discuz 提示页识别）与 getHtml 完全一致。
+ */
+export async function getPublicHtml(url: string): Promise<string> {
+	return withRetry(`请求 ${url}`, async (extra) => {
+		await throttle();
+		const response = await client.get<string>(url, {
+			headers: { ...extra },
+			validateStatus: () => true,
+		});
+		return readHtml(response);
+	});
+}
+
+/**
  * 发起一次 POST 请求并返回 HTML 文本。
  * Discuz 的搜索等表单必须带 formhash 走 POST，GET 只会返回空表单页。
  */

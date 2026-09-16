@@ -79,6 +79,11 @@ function timeOf($: CheerioAPI, el: AnyElement | undefined): string {
  * 允许内嵌的播放器域名。
  * 白名单之外一律不嵌，避免把任意第三方页面拉进 webview 执行。
  * 论坛的 [media] 标签以 B 站为主，其余几个是常见备选。
+ *
+ * music.163.com 是门户文章用的：福利吧的文章开头十有八九挂一个网易云 BGM 播放器
+ *（`//music.163.com/outchain/player?type=2&id=...`）。实测它不带 X-Frame-Options
+ * 也没有 frame-ancestors 限制，可以嵌；而且放的是 mp3，VS Code 内核解得动 —— 是少数
+ * 「在编辑器里点开就真有声音」的媒体。（CSP 的 frame-src 由这份名单生成，两边共用。）
  */
 export const EMBED_HOSTS = [
 	'player.bilibili.com',
@@ -87,6 +92,7 @@ export const EMBED_HOSTS = [
 	'v.qq.com',
 	'www.youtube.com',
 	'player.vimeo.com',
+	'music.163.com',
 ];
 
 /**
@@ -107,8 +113,8 @@ function escapeAttr(value: string): string {
 	return value.replace(/&(?!amp;|lt;|gt;|quot;|#\d+;)/g, '&amp;').replace(/"/g, '&quot;');
 }
 
-/** src 是否指向白名单里的播放器 */
-function isAllowedEmbed(raw: string): boolean {
+/** src 是否指向白名单里的播放器（门户的正文清洗也复用这份判断） */
+export function isAllowedEmbed(raw: string): boolean {
 	// 论坛里常见协议相对写法 //player.bilibili.com/xxx，补上协议才能解析
 	const src = raw.startsWith('//') ? `https:${raw}` : raw;
 	try {

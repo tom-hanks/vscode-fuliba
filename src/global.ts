@@ -50,6 +50,20 @@ export default class Global {
 		return raw.replace(/\/+$/, '');
 	}
 
+	/**
+	 * 门户站根地址，去掉结尾斜杠。
+	 *
+	 * 门户（fuliba2023.net）和论坛（wnflb2023.com）是两个站：账号不通用、
+	 * Cookie 不通用、页面结构也不一样。门户是 Discuz 的门户模块挂 DUX 模板，
+	 * 文章以 aid 为单位；论坛是版块/帖子，以 tid 为单位。所以这里单独一份地址。
+	 */
+	public static getPortalUrl(): string {
+		const raw =
+			vscode.workspace.getConfiguration('fuliba').get<string>('portalUrl') ||
+			'https://fuliba2023.net';
+		return raw.replace(/\/+$/, '');
+	}
+
 	/** 两次请求之间的最小间隔（毫秒） */
 	public static getRequestInterval(): number {
 		const value = vscode.workspace.getConfiguration('fuliba').get<number>('requestInterval');

@@ -4,6 +4,7 @@ import Global from './global';
 import ForumProvider from './providers/ForumProvider';
 import { NODE, TreeNode } from './providers/BaseProvider';
 import openThread, { disposeAllPanels } from './commands/topicItemClick';
+import openArticle, { disposeArticlePanel } from './commands/articlePanel';
 import setCookie, { clearCookie } from './commands/cookie';
 import { searchThreads, extractTid, getForumGroupsCached } from './discuz';
 import { LoginRequiredError } from './error';
@@ -29,6 +30,17 @@ function parseTidInput(input: string): number | undefined {
 		return parseInt(trimmed, 10);
 	}
 	return extractTid(trimmed);
+}
+
+/**
+ * 这个目录节点能不能翻页。
+ *
+ * 版块靠 fid 认，门户的「最新福利」没有 fid（它是另一个站），只能靠节点类型认。
+ * 早先这里写的是 `node.fid === undefined` 直接 return，加上门户节点后会把翻页
+ * 命令静默吞掉 —— 点了没反应最难查，所以统一走这一个判据。
+ */
+function isPageableNode(node: TreeNode | undefined): boolean {
+	return !!node && (node.fid !== undefined || node.contextValue === NODE.portal);
 }
 
 /** 统一的错误提示 */
@@ -278,9 +290,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			}
 		}),
 
-		// ---------- 版块内翻页 ----------
+		// ---------- 目录内翻页（版块和「最新福利」共用） ----------
 		vscode.commands.registerCommand('fuliba.prevPage', (node: TreeNode) => {
-			if (!node || node.fid === undefined) {
+			if (!isPageableNode(node)) {
 				return;
 			}
 			if (node.pageNow <= 1) {
@@ -292,7 +304,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		}),
 
 		vscode.commands.registerCommand('fuliba.nextPage', (node: TreeNode) => {
-			if (!node || node.fid === undefined) {
+			if (!isPageableNode(node)) {
 				return;
 			}
 			if (node.pageNow >= node.pageTotal) {
@@ -304,7 +316,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		}),
 
 		vscode.commands.registerCommand('fuliba.jumpFirst', (node: TreeNode) => {
-			if (!node || node.fid === undefined || node.pageNow === 1) {
+			if (!isPageableNode(node) || node.pageNow === 1) {
 				return;
 			}
 			node.pageNow = 1;
@@ -339,6 +351,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			}
 		}),
 
+		// ---------- 门户「最新福利」 ----------
+		// 文章的入口在树里（最下面那个节点），这条命令只负责把它露出来并展开。
+		// 门户游客就能读，不需要 Cookie，所以整条链路都不依赖登录态。
+		vscode.commands.registerCommand('fuliba.latest', async () => {
+			const roots = await provider.getChildren();
+			const portal = roots.find((node) => node.contextValue === NODE.portal);
+			if (!portal) {
+				void vscode.window.showInformationMessage('侧边栏里没找到「最新福利」，试试刷新版块列表');
+				return;
+			}
+			await treeView.reveal(portal, { expand: true, focus: true, select: true });
+		}),
+
+		// 点门户文章节点 → 在面板里读正文
+		vscode.commands.registerCommand('fuliba.openArticle', async (node?: TreeNode) => {
+			if (!node?.link) {
+				return;
+			}
+			await openArticle(node.link);
+		}),
+
 		// ---------- 设置 ----------
 		vscode.commands.registerCommand('fuliba.settings', () => {
 			void vscode.commands.executeCommand('workbench.action.openSettings', 'fuliba');
@@ -348,6 +381,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export function deactivate(): void {
 	disposeAllPanels();
+	disposeArticlePanel();
 	disposeMediaServer();
 	Global.context = undefined;
 }
