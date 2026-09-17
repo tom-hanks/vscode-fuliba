@@ -3,6 +3,14 @@
 福利吧扩展的全部版本变更。格式大体沿用 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.1] - 2026-09-17
+
+### 改动
+
+- **侧边栏图标换成新 logo**：`resources/icon.png`（市场 / 扩展面板图标）替换为新形象；活动栏图标（`fuliba.svg`）保持不变。
+- **去掉标题栏的地球入口**：顶部设置齿轮旁的「最新福利」🌐 按钮从标题栏移除（命令面板仍可用，树里也有门户节点）。
+- **当前排序直接展示在树上**：版块树顶部新增一个「排序：XXX · 点击修改」节点，点击即打开排序菜单；切换排序后文案即时刷新（原来这个状态只藏在视图标题旁的小灰字里，几乎看不见）。
+
 ## [0.9.0] - 2026-09-16
 
 ### 新增
@@ -98,6 +106,7 @@
 
 - 首个版本：版块树浏览、帖子详情、图片按需加载、已读标记、搜索
 
+[0.9.1]: https://github.com/tom-hanks/vscode-fuliba/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/tom-hanks/vscode-fuliba/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/tom-hanks/vscode-fuliba/compare/v0.6.0...v0.8.0
 [0.6.0]: https://github.com/tom-hanks/vscode-fuliba/compare/v0.2.1...v0.6.0

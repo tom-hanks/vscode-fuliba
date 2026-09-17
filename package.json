@@ -2,7 +2,7 @@
   "name": "fuliba",
   "displayName": "福利吧",
   "description": "码农摸鱼神器：在 VS Code 侧边栏里刷福利吧。等编译、等依赖、等 AI 把代码写完的间隙，顺手翻两页，不用切浏览器。",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "publisher": "laryers",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -195,11 +195,6 @@
           "command": "fuliba.settings",
           "when": "view == fuliba-forums",
           "group": "navigation@5"
-        },
-        {
-          "command": "fuliba.latest",
-          "when": "view == fuliba-forums",
-          "group": "navigation@6"
         },
         {
           "command": "fuliba.selectForums",

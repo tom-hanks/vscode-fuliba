@@ -4,7 +4,7 @@ import { fetchForumGroups, fetchThreadList } from '../discuz';
 import { fetchLatestArticles } from '../portal';
 import type { PortalArticle } from '../portal';
 import { LoginRequiredError } from '../error';
-import { ForumGroup, Thread } from '../models';
+import { ForumGroup, SORT_LABELS, Thread } from '../models';
 import Global from '../global';
 
 /**
@@ -52,6 +52,10 @@ export default class ForumProvider extends BaseProvider {
 		// 每次渲染都重算一遍，这样 refreshNode 之后标记能立刻更新
 		if (element.tid !== undefined) {
 			ForumProvider.decorateThread(element);
+		}
+		// 排序提示节点同理：改完排序只 repaint 不重建树，文案在渲染时刷新
+		if (element.contextValue === NODE.sortHint) {
+			ForumProvider.applySortLabel(element);
 		}
 		return element;
 	}
@@ -129,6 +133,8 @@ export default class ForumProvider extends BaseProvider {
 
 		// 「最新福利」挂在最后：它是另一个站（门户），和上面的版块不在同一个体系里
 		roots.push(ForumProvider.portalRoot());
+		// 当前排序挂在树顶：藏在标题栏小字里太不显眼，直接摆进树里点一下就能改
+		roots.unshift(ForumProvider.sortHint());
 		this.roots = roots;
 	}
 
@@ -226,6 +232,33 @@ export default class ForumProvider extends BaseProvider {
 		node.tooltip = '论坛的版块和帖子需要登录才能看';
 		node.command = { command: 'fuliba.setCookie', title: '导入 Cookie' };
 		return node;
+	}
+
+	/**
+	 * 树顶的「当前排序」节点。
+	 *
+	 * 排序方式原来只显示在视图标题旁的小字里，几乎没人看得见；
+	 * 现在直接摆成树的第一个节点，label 就是当前排序，点一下打开排序菜单。
+	 * 文案不在建节点时定死 —— 改排序只 repaint，渲染时经 applySortLabel 刷新。
+	 */
+	private static sortHint(): TreeNode {
+		const node = new TreeNode('', false);
+		node.setKind('sortHint');
+		node.iconPath = new vscode.ThemeIcon('list-ordered');
+		node.command = { command: 'fuliba.chooseSort', title: '更改排序方式' };
+		ForumProvider.applySortLabel(node);
+		return node;
+	}
+
+	/** 把当前排序写进提示节点的 label 和 tooltip */
+	private static applySortLabel(node: TreeNode): void {
+		const sort = Global.getThreadSort();
+		node.label = `排序：${SORT_LABELS[sort]}`;
+		node.description = '点击修改';
+		node.tooltip = [
+			`版块内帖子当前按「${SORT_LABELS[sort]}」排列`,
+			'点击这一行可以换一种排法',
+		].join('\n');
 	}
 
 	/**

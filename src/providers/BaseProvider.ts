@@ -26,6 +26,8 @@ export const NODE = {
 	portal: 'fuliba.portal',
 	/** 门户文章叶子节点。靠 aid 区分于帖子的 tid */
 	article: 'fuliba.article',
+	/** 树顶的「当前排序」提示节点。点击打开排序菜单，改完刷新时同步改文案 */
+	sortHint: 'fuliba.sortHint',
 	hint: 'fuliba.hint',
 	error: 'fuliba.error',
 } as const;
